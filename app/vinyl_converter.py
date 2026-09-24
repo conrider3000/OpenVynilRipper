@@ -432,33 +432,6 @@ class App(customtkinter.CTk):
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
-    def _fetch_cover_art(self, release_id):
-        def task():
-            import urllib.request, json, os, threading
-            try:
-                self.after(0, lambda: self.lbl_status.configure(text="BAIXANDO CAPA DO ÁLBUM...", text_color=COLOR_YELLOW))
-                url = f"https://coverartarchive.org/release/{release_id}"
-                req = urllib.request.Request(url, headers={'User-Agent': 'OpenVynilRipper/1.0'})
-                with urllib.request.urlopen(req) as response:
-                    data = json.loads(response.read().decode())
-                
-                front_path, back_path = None, None
-                for img in data.get("images", []):
-                    if img.get("front") and not front_path:
-                        front_path = os.path.join(self.project_dir, "cover.jpg")
-                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), front_path)
-                    elif img.get("back") and not back_path:
-                        back_path = os.path.join(self.project_dir, "back.jpg")
-                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), back_path)
-                        
-                self.after(0, lambda: self.cover_display.load_covers(front_path, back_path))
-                self.after(0, lambda: self.lbl_status.configure(text="SISTEMA PRONTO", text_color=COLOR_GREEN))
-            except Exception as e:
-                print("Cover fetch error:", e)
-                self.after(0, lambda: self.lbl_status.configure(text="CAPA INDISPONÍVEL", text_color=COLOR_TEXT))
-        import threading
-        threading.Thread(target=task, daemon=True).start()
-        
         showcase_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         showcase_frame.pack(fill="x", padx=10, pady=5)
         
@@ -611,6 +584,33 @@ class App(customtkinter.CTk):
         self.btn_stop.configure(state="disabled", fg_color=COLOR_SURFACE2)
         self.lbl_status.configure(text="GRAVAÇÃO FINALIZADA. PRONTO.", text_color=COLOR_GREEN)
         
+    def _fetch_cover_art(self, release_id):
+        def task():
+            import urllib.request, json, os, threading
+            try:
+                self.after(0, lambda: self.lbl_status.configure(text="BAIXANDO CAPA DO ÁLBUM...", text_color=COLOR_YELLOW))
+                url = f"https://coverartarchive.org/release/{release_id}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'OpenVynilRipper/1.0'})
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode())
+                
+                front_path, back_path = None, None
+                for img in data.get("images", []):
+                    if img.get("front") and not front_path:
+                        front_path = os.path.join(self.project_dir, "cover.jpg")
+                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), front_path)
+                    elif img.get("back") and not back_path:
+                        back_path = os.path.join(self.project_dir, "back.jpg")
+                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), back_path)
+                        
+                self.after(0, lambda: self.cover_display.load_covers(front_path, back_path))
+                self.after(0, lambda: self.lbl_status.configure(text="SISTEMA PRONTO", text_color=COLOR_GREEN))
+            except Exception as e:
+                print("Cover fetch error:", e)
+                self.after(0, lambda: self.lbl_status.configure(text="CAPA INDISPONÍVEL", text_color=COLOR_TEXT))
+        import threading
+        threading.Thread(target=task, daemon=True).start()
+
     def on_auto_split(self):
         lado_a = os.path.join(self.project_dir, "LadoA.wav")
         lado_b = os.path.join(self.project_dir, "LadoB.wav")
