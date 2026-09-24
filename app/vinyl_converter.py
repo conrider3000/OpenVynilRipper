@@ -299,13 +299,39 @@ class VirtualTurntable(customtkinter.CTkFrame):
         lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
         lbl_cam.pack(fill="both", expand=True)
         btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR RÓTULO", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
-        btn_take.pack(pady=10)
+        btn_take.pack(pady=(10, 5))
         
         cap = cv2.VideoCapture(0)
         self.taking_photo = False
         
+        def load_from_pc():
+            from tkinter import filedialog
+            import shutil
+            path = filedialog.askopenfilename(title="Escolha a imagem", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
+            if path:
+                save_path = os.path.join(self.app.project_dir, "label.jpg")
+                try:
+                    img = Image.open(path).convert("RGB")
+                    # Crop to square
+                    w, h = img.size
+                    min_dim = min(h, w)
+                    sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+                    img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
+                    img.save(save_path, quality=90)
+                except:
+                    shutil.copy(path, save_path)
+                
+                self.label_path = save_path
+                cap.release()
+                if self.cam_window.winfo_exists():
+                    self.cam_window.destroy()
+                self.draw_vinyl()
+                
+        btn_pc = customtkinter.CTkButton(self.cam_window, text="📁 CARREGAR DO PC", height=40, font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=load_from_pc)
+        btn_pc.pack(pady=(0, 10))
+        
         def update_cam():
-            if not self.cam_window.winfo_exists():
+            if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
                 cap.release()
                 return
             ret, frame = cap.read()
@@ -412,14 +438,39 @@ class CoverDisplay(customtkinter.CTkFrame):
         lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
         lbl_cam.pack(fill="both", expand=True)
         
-        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
-        btn_take.pack(pady=10)
+        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR CAPA", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
+        btn_take.pack(pady=(10, 5))
         
         cap = cv2.VideoCapture(0)
         self.taking_photo = False
         
+        def load_from_pc():
+            from tkinter import filedialog
+            import shutil
+            path = filedialog.askopenfilename(title="Escolha a imagem da capa", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
+            if path:
+                save_path = os.path.join(self.app.project_dir, "cover.jpg")
+                try:
+                    img = Image.open(path).convert("RGB")
+                    # Crop to square
+                    w, h = img.size
+                    min_dim = min(h, w)
+                    sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+                    img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
+                    img.save(save_path, quality=90)
+                except:
+                    shutil.copy(path, save_path)
+                
+                cap.release()
+                if self.cam_window.winfo_exists():
+                    self.cam_window.destroy()
+                self.load_covers(save_path, self.back_path)
+                
+        btn_pc = customtkinter.CTkButton(self.cam_window, text="📁 CARREGAR DO PC", height=40, font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=load_from_pc)
+        btn_pc.pack(pady=(0, 10))
+        
         def update_cam():
-            if not self.cam_window.winfo_exists():
+            if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
                 cap.release()
                 return
             ret, frame = cap.read()
