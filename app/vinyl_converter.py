@@ -472,6 +472,7 @@ class CoverDisplay(customtkinter.CTkFrame):
 
 
 CARTRIDGES = [
+    "Leson AG-180 Diamante", "Leson Axxis",
     "Audio-Technica AT95E", "Audio-Technica AT-VM95E", "Audio-Technica AT-VM95ML", "Audio-Technica AT-VM95SH",
     "Ortofon 2M Red", "Ortofon 2M Blue", "Ortofon 2M Bronze", "Ortofon 2M Black", "Ortofon OM5E", "Ortofon OM10",
     "Shure M44-7", "Shure M97xE", "Shure V15 Type III", "Shure V15 Type IV",
@@ -513,9 +514,25 @@ class MetadataCard(customtkinter.CTkFrame):
             self.entries[key] = ent
             
     def _filter_cartridges(self, event):
+        if event.keysym in ("Down", "Up", "Left", "Right", "Return", "Escape", "Tab"):
+            return
+            
         typed = self.entries["cartridge"].get().lower()
         hits = [c for c in CARTRIDGES if typed in c.lower()]
-        self.entries["cartridge"].configure(values=hits if hits else CARTRIDGES)
+        
+        cb = self.entries["cartridge"]
+        # Fecha menu antigo para recriar com novos valores
+        if hasattr(cb, "_dropdown_menu") and cb._dropdown_menu.winfo_ismapped():
+            cb._dropdown_menu._withdraw()
+            
+        cb.configure(values=hits if hits else CARTRIDGES)
+        
+        if typed and hits:
+            if hasattr(cb, "_open_dropdown_menu"):
+                cb._open_dropdown_menu()
+                # Devolve o foco para o campo de texto para continuar digitando
+                if hasattr(cb, "_entry"):
+                    cb._entry.focus_set()
         
     def search_album(self):
         import urllib.request
@@ -585,21 +602,30 @@ class App(customtkinter.CTk):
         self._ui_update_loop()
         
     def _build_ui(self):
+        # HEADER
         header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=50, corner_radius=0)
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
+        # LOWER SECTION (Packed first with side="bottom" to prevent overflow)
+        proj_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
+        proj_frame.pack(fill="x", padx=10, pady=5, side="bottom")
+        
+        vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
+        vis_frame.pack(fill="x", padx=10, pady=(5, 0), side="bottom")
+        
+        # MAIN CONTAINER (Fills remaining space)
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        left_col = customtkinter.CTkFrame(main_container, fg_color="transparent")
-        left_col.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        top_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        top_row.pack(fill="x")
+        top_row.columnconfigure(0, weight=1)
+        top_row.columnconfigure(1, weight=1)
+        top_row.rowconfigure(0, weight=1)
         
-        right_col = customtkinter.CTkFrame(main_container, fg_color="transparent")
-        right_col.pack(side="right", fill="both", expand=True, padx=(5, 0))
-        
-        dev_frame = customtkinter.CTkFrame(left_col, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        dev_frame.pack(fill="x")
+        dev_frame = customtkinter.CTkFrame(top_row, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
+        dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
         dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
         dev_top.pack(fill="x", pady=(10, 5), padx=15)
@@ -618,27 +644,27 @@ class App(customtkinter.CTk):
         self.vol_slider.set(1.0)
         self.vol_slider.pack(side="right", fill="x", expand=True, padx=(10, 0))
         
-        self.turntable = VirtualTurntable(left_col)
-        self.turntable.pack(fill="both", expand=True, pady=(10,0))
+        self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
+        self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         
-        self.meta_card = MetadataCard(right_col, on_album_found=self._fetch_cover_art)
-        self.meta_card.pack(fill="x")
+        mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        mid_row.pack(fill="both", expand=True, pady=(10,0))
+        mid_row.columnconfigure(0, weight=1)
+        mid_row.columnconfigure(1, weight=1)
+        mid_row.rowconfigure(0, weight=1)
         
-        self.cover_display = CoverDisplay(right_col, app=self)
-        self.cover_display.pack(fill="both", expand=True, pady=(10,0))
+        self.turntable = VirtualTurntable(mid_row, app=self)
+        self.turntable.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
-        vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        vis_frame.pack(fill="x", padx=10, pady=(5, 0))
+        self.cover_display = CoverDisplay(mid_row, app=self)
+        self.cover_display.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        
         self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VU")
         self.vu_in.pack(side="left", padx=15, pady=15)
         self.waveform = RetroWaveform(vis_frame)
         self.waveform.pack(side="left", expand=True, fill="both", pady=15)
         self.vu_out = AnalogVUMeter(vis_frame, label="MONITOR VU")
         self.vu_out.pack(side="right", padx=15, pady=15)
-        
-        # TRANSPORT & PROJECT SECTION
-        proj_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        proj_frame.pack(fill="x", padx=10, pady=5)
         
         p_top = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
         p_top.pack(fill="x", padx=15, pady=10)
