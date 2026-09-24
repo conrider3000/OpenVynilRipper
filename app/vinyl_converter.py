@@ -49,6 +49,11 @@ class AudioEngine:
         self.on_time_update = None
 
     def get_devices(self) -> dict:
+        try:
+            sd._terminate()
+            sd._initialize()
+        except:
+            pass
         devices = sd.query_devices()
         apis = sd.query_hostapis()
         
@@ -137,11 +142,18 @@ class AudioEngine:
                 pass
             self.stream = None
 
-    def export_chunk(self, wav_path: str, out_path: str, metadata: dict, start_time: float, duration: float, fmt: str, denoise: bool):
+    def export_chunk(self, wav_path: str, out_path: str, metadata: dict, start_time: float, duration: float, fmt: str, denoise: bool, normalize: bool):
         cmd = ["ffmpeg", "-y", "-i", wav_path, "-ss", str(start_time), "-t", str(duration)]
         
+        audio_filters = []
         if denoise:
-            cmd.extend(["-af", "afftdn=nf=-25"])
+            audio_filters.append("afftdn=nf=-25")
+        if normalize:
+            # loudnorm = EBU R128 normalization
+            audio_filters.append("loudnorm=I=-14:LRA=11:TP=-1.0")
+            
+        if audio_filters:
+            cmd.extend(["-af", ",".join(audio_filters)])
             
         if "MP3" in fmt:
             cmd.extend(["-codec:a", "libmp3lame", "-qscale:a", "2"])
@@ -322,7 +334,12 @@ class App(customtkinter.CTk):
         
         dev_frame = customtkinter.CTkFrame(mid_frame, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
         dev_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
-        customtkinter.CTkLabel(dev_frame, text="[ ROTEAMENTO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(pady=(10, 5))
+        
+        dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
+        dev_top.pack(fill="x", pady=(10, 5), padx=15)
+        customtkinter.CTkLabel(dev_top, text="[ ROTEAMENTO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        customtkinter.CTkButton(dev_top, text="🔄 Atualizar USB", width=80, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self._init_devices).pack(side="right")
+        
         self.opt_in = customtkinter.CTkOptionMenu(dev_frame, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_in.pack(fill="x", padx=15, pady=5)
         self.opt_out = customtkinter.CTkOptionMenu(dev_frame, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
@@ -381,7 +398,10 @@ class App(customtkinter.CTk):
         self.opt_format = customtkinter.CTkOptionMenu(opt_frame, values=["MP3 (Padrão)", "FLAC (Lossless)", "WAV (Original)"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN)
         self.opt_format.pack(side="left", padx=10)
         
-        self.chk_denoise = customtkinter.CTkCheckBox(opt_frame, text="Filtro Anti-Chiado (De-noise)", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_normalize = customtkinter.CTkCheckBox(opt_frame, text="Normalizar Vol.", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_normalize.pack(side="left", padx=10)
+        
+        self.chk_denoise = customtkinter.CTkCheckBox(opt_frame, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
         self.chk_denoise.pack(side="right")
         
         self.btn_split = customtkinter.CTkButton(p_bot, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, command=self.on_auto_split)
@@ -511,6 +531,7 @@ class App(customtkinter.CTk):
                 fmt = self.opt_format.get()
                 ext = ".mp3" if "MP3" in fmt else ".flac" if "FLAC" in fmt else ".wav"
                 denoise = bool(self.chk_denoise.get())
+                normalize = bool(self.chk_normalize.get())
 
                 # Exportar chunks
                 for start_t, end_t in faixas_timestamps:
@@ -523,7 +544,7 @@ class App(customtkinter.CTk):
                     else: track_meta["title"] = f"{track_meta['title']} {track_num}"
                         
                     out_path = os.path.join(self.project_dir, f"{track_num:02d} - {track_meta['title']}{ext}")
-                    self.engine.export_chunk(wav_path, out_path, track_meta, start_t, duration, fmt, denoise)
+                    self.engine.export_chunk(wav_path, out_path, track_meta, start_t, duration, fmt, denoise, normalize)
                     track_num += 1
 
             self.after(0, lambda: self.lbl_status.configure(text=f"SUCESSO! {track_num-1} FAIXAS GERADAS.", text_color=COLOR_GREEN))
