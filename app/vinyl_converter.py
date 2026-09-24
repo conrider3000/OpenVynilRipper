@@ -149,8 +149,14 @@ class AudioEngine:
                 pass
             self.stream = None
 
-    def export_chunk(self, wav_path: str, out_path: str, metadata: dict, start_time: float, duration: float, fmt: str, denoise: bool, normalize: bool):
-        cmd = ["ffmpeg", "-y", "-i", wav_path, "-ss", str(start_time), "-t", str(duration)]
+    def export_chunk(self, wav_path: str, out_path: str, metadata: dict, start_time: float, duration: float, fmt: str, denoise: bool, normalize: bool, cover_path: str = None):
+        cmd = ["ffmpeg", "-y", "-i", wav_path]
+        
+        has_cover = cover_path and os.path.exists(cover_path)
+        if has_cover:
+            cmd.extend(["-i", cover_path])
+            
+        cmd.extend(["-ss", str(start_time), "-t", str(duration)])
         
         audio_filters = []
         if denoise:
@@ -164,10 +170,14 @@ class AudioEngine:
             
         if "MP3" in fmt:
             cmd.extend(["-codec:a", "libmp3lame", "-qscale:a", "2"])
+            if has_cover:
+                cmd.extend(["-map", "0:a", "-map", "1:v", "-c:v", "mjpeg", "-id3v2_version", "3", "-metadata:s:v", 'title="Album cover"', "-metadata:s:v", 'comment="Cover (front)"'])
         elif "FLAC" in fmt:
             cmd.extend(["-codec:a", "flac"])
+            if has_cover:
+                cmd.extend(["-map", "0:a", "-map", "1:v", "-c:v", "copy", "-disposition:v", "attached_pic"])
         else:
-            cmd.extend(["-codec:a", "pcm_s16le"])
+            cmd.extend(["-codec:a", "pcm_s16le"]) # WAV não suporta capa embutida padrão
             
         if metadata.get("title"): cmd.extend(["-metadata", f"title={metadata['title']}"])
         if metadata.get("artist"): cmd.extend(["-metadata", f"artist={metadata['artist']}"])
@@ -230,6 +240,80 @@ class AnalogVUMeter(tk.Canvas):
             self.create_rectangle(x-8, y_top, x+8, y_bottom, fill=cor, outline="")
         self.create_text(x, 114, text=text, fill=COLOR_TEXT2, font=(FONT_FAMILY, 8))
 
+class VirtualTurntable(customtkinter.CTkFrame):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.angle = 0
+        self.is_playing = False
+        self.canvas = customtkinter.CTkCanvas(self, width=200, height=200, bg=COLOR_SURFACE, highlightthickness=0)
+        self.canvas.pack()
+        self.draw_vinyl()
+        
+    def set_playing(self, playing: bool):
+        self.is_playing = playing
+        
+    def update_rotation(self):
+        if self.is_playing:
+            self.angle = (self.angle + 5) % 360
+        self.draw_vinyl()
+        
+    def draw_vinyl(self):
+        self.canvas.delete("all")
+        import math
+        self.canvas.create_oval(10, 10, 190, 190, fill="#111", outline="#333", width=2)
+        self.canvas.create_oval(25, 25, 175, 175, outline="#222")
+        self.canvas.create_oval(40, 40, 160, 160, outline="#222")
+        self.canvas.create_oval(55, 55, 145, 145, outline="#222")
+        self.canvas.create_oval(70, 70, 130, 130, fill=COLOR_ACCENT, outline="")
+        rad = math.radians(self.angle)
+        x = 100 + 20 * math.cos(rad)
+        y = 100 + 20 * math.sin(rad)
+        self.canvas.create_oval(x-4, y-4, x+4, y+4, fill="#000", outline="")
+        self.canvas.create_oval(97, 97, 103, 103, fill=COLOR_SURFACE, outline="")
+        arm_angle = 35 if self.is_playing else 10
+        rad_arm = math.radians(arm_angle)
+        end_x = 180 - 100 * math.sin(rad_arm)
+        end_y = 20 + 100 * math.cos(rad_arm)
+        self.canvas.create_oval(170, 10, 190, 30, fill="#444", outline="")
+        self.canvas.create_line(180, 20, end_x, end_y, fill="#ccc", width=4)
+        hx = end_x - 8 * math.cos(rad_arm)
+        hy = end_y + 8 * math.sin(rad_arm)
+        self.canvas.create_polygon(end_x, end_y, hx, hy, hx-10, hy-10, end_x-10, end_y-10, fill="#666", outline="")
+
+class CoverDisplay(customtkinter.CTkFrame):
+    def __init__(self, master, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.front_path = None
+        self.back_path = None
+        self.showing_front = True
+        
+        self.lbl_img = customtkinter.CTkLabel(self, text="SEM CAPA\n(Busque o Álbum)", width=200, height=200, fg_color=COLOR_BG, font=FONT_MAIN, text_color=COLOR_SURFACE2)
+        self.lbl_img.pack()
+        
+        self.btn_flip = customtkinter.CTkButton(self, text="🔄 Virar Capa", width=200, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.flip_cover, state="disabled")
+        self.btn_flip.pack(pady=(5, 0))
+        
+    def load_covers(self, front_path, back_path):
+        from PIL import Image
+        self.front_path = front_path
+        self.back_path = back_path
+        self.showing_front = True
+        self.btn_flip.configure(state="normal" if back_path and os.path.exists(back_path) else "disabled")
+        self._update_img()
+        
+    def flip_cover(self):
+        self.showing_front = not self.showing_front
+        self._update_img()
+        
+    def _update_img(self):
+        from PIL import Image
+        path = self.front_path if self.showing_front else self.back_path
+        if path and os.path.exists(path):
+            img = customtkinter.CTkImage(light_image=Image.open(path), size=(200, 200))
+            self.lbl_img.configure(image=img, text="")
+        else:
+            self.lbl_img.configure(image="", text="IMAGEM INDISPONÍVEL")
+
 CARTRIDGES = [
     "Audio-Technica AT95E", "Audio-Technica AT-VM95E", "Audio-Technica AT-VM95ML", "Audio-Technica AT-VM95SH",
     "Ortofon 2M Red", "Ortofon 2M Blue", "Ortofon 2M Bronze", "Ortofon 2M Black", "Ortofon OM5E", "Ortofon OM10",
@@ -242,8 +326,9 @@ CARTRIDGES = [
 ]
 
 class MetadataCard(customtkinter.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, on_album_found=None, **kwargs):
         super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2, **kwargs)
+        self.on_album_found = on_album_found
         
         top_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", pady=(10, 5), padx=15)
@@ -311,6 +396,11 @@ class MetadataCard(customtkinter.CTkFrame):
                     self.entries["year"].insert(0, year)
                     
                 messagebox.showinfo("Sucesso", f"Álbum encontrado na base de dados global (MusicBrainz)!\n\n{res.get('title')} ({year})")
+                
+                release_id = res.get("id")
+                if release_id and self.on_album_found:
+                    self.on_album_found(release_id)
+                    
             else:
                 messagebox.showinfo("Não encontrado", "Não encontramos esse álbum exato na base do MusicBrainz.")
         except Exception as e:
@@ -328,7 +418,7 @@ class App(customtkinter.CTk):
         os.makedirs(self.project_dir, exist_ok=True)
         
         self.title("OPEN VYNIL RIPPER - ANALOG EDITION")
-        self.geometry("900x720")
+        self.geometry("950x950")
         self.resizable(True, True) # Permite Tela Cheia
         self.configure(fg_color=COLOR_BG)
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -341,6 +431,42 @@ class App(customtkinter.CTk):
         header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=50, corner_radius=0)
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
+        
+    def _fetch_cover_art(self, release_id):
+        def task():
+            import urllib.request, json, os, threading
+            try:
+                self.after(0, lambda: self.lbl_status.configure(text="BAIXANDO CAPA DO ÁLBUM...", text_color=COLOR_YELLOW))
+                url = f"https://coverartarchive.org/release/{release_id}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'OpenVynilRipper/1.0'})
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode())
+                
+                front_path, back_path = None, None
+                for img in data.get("images", []):
+                    if img.get("front") and not front_path:
+                        front_path = os.path.join(self.project_dir, "cover.jpg")
+                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), front_path)
+                    elif img.get("back") and not back_path:
+                        back_path = os.path.join(self.project_dir, "back.jpg")
+                        urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), back_path)
+                        
+                self.after(0, lambda: self.cover_display.load_covers(front_path, back_path))
+                self.after(0, lambda: self.lbl_status.configure(text="SISTEMA PRONTO", text_color=COLOR_GREEN))
+            except Exception as e:
+                print("Cover fetch error:", e)
+                self.after(0, lambda: self.lbl_status.configure(text="CAPA INDISPONÍVEL", text_color=COLOR_TEXT))
+        import threading
+        threading.Thread(target=task, daemon=True).start()
+        
+        showcase_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        showcase_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.cover_display = CoverDisplay(showcase_frame)
+        self.cover_display.pack(side="left", padx=40)
+        
+        self.turntable = VirtualTurntable(showcase_frame)
+        self.turntable.pack(side="left", padx=40)
         
         mid_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         mid_frame.pack(fill="x", padx=10, pady=5)
@@ -365,7 +491,7 @@ class App(customtkinter.CTk):
         self.vol_slider.set(1.0)
         self.vol_slider.pack(side="right", fill="x", expand=True, padx=(10, 0))
         
-        self.meta_card = MetadataCard(mid_frame)
+        self.meta_card = MetadataCard(mid_frame, on_album_found=self._fetch_cover_art)
         self.meta_card.pack(side="right", fill="both", expand=True, padx=(5, 0))
         
         vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
@@ -462,10 +588,11 @@ class App(customtkinter.CTk):
         if self.chk_magic.get():
             self.engine.magic_wait = True
             self.engine.magic_path = wav_path
-            self.engine.on_magic_trigger = lambda: self.after(0, lambda: self.lbl_status.configure(text=f"GRAVANDO O {side_name.upper()}...", text_color=COLOR_RED))
+            self.engine.on_magic_trigger = lambda: self.after(0, lambda: [self.lbl_status.configure(text=f"GRAVANDO O {side_name.upper()}...", text_color=COLOR_RED), self.turntable.set_playing(True)])
             self.lbl_status.configure(text=f"AGUARDANDO O ÁUDIO COMEÇAR (MAGIC RECORD)...", text_color="#8a2be2")
         else:
             self.engine.start_recording(wav_path)
+            self.turntable.set_playing(True)
             self.lbl_status.configure(text=f"GRAVANDO O {side_name.upper()}...", text_color=COLOR_RED)
             
         self.btn_rec_a.configure(state="disabled")
@@ -476,6 +603,8 @@ class App(customtkinter.CTk):
         
     def on_stop_click(self):
         self.engine.stop_recording()
+        self.engine.magic_wait = False
+        self.turntable.set_playing(False)
         self.btn_rec_a.configure(state="normal")
         self.btn_rec_b.configure(state="normal")
         self.btn_split.configure(state="normal")
@@ -568,7 +697,8 @@ class App(customtkinter.CTk):
                     else: track_meta["title"] = f"{track_meta['title']} {track_num}"
                         
                     out_path = os.path.join(self.project_dir, f"{track_num:02d} - {track_meta['title']}{ext}")
-                    self.engine.export_chunk(wav_path, out_path, track_meta, start_t, duration, fmt, denoise, normalize)
+                    cover_path = os.path.join(self.project_dir, "cover.jpg")
+                    self.engine.export_chunk(wav_path, out_path, track_meta, start_t, duration, fmt, denoise, normalize, cover_path)
                     track_num += 1
 
             self.after(0, lambda: self.lbl_status.configure(text=f"SUCESSO! {track_num-1} FAIXAS GERADAS.", text_color=COLOR_GREEN))
@@ -586,6 +716,7 @@ class App(customtkinter.CTk):
             self.vu_in.draw(self.engine.latest_levels[0], self.engine.latest_levels[1])
             self.vu_out.draw(self.engine.latest_levels[2], self.engine.latest_levels[3])
         self.waveform.redraw()
+        if hasattr(self, 'turntable'): self.turntable.update_rotation()
         self.after(30, self._ui_update_loop)
 
     def on_time_update(self, seconds):
