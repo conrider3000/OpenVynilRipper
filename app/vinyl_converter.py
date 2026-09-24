@@ -96,6 +96,13 @@ class AudioEngine:
             outdata[:] = np.zeros_like(outdata)
             return
         outdata[:] = indata * self.monitor_volume
+        
+        amplitude_chunk = float(np.max(np.abs(indata)))
+        if getattr(self, 'magic_wait', False) and amplitude_chunk > 0.02:
+            self.magic_wait = False
+            self.start_recording(self.magic_path)
+            if hasattr(self, 'on_magic_trigger'): self.on_magic_trigger()
+            
         if self.recording and self.writer is not None:
             self.writer.write(indata)
             self.elapsed_seconds += frames / self.sample_rate
@@ -279,27 +286,33 @@ class MetadataCard(customtkinter.CTkFrame):
             return
             
         try:
-            query = urllib.parse.quote(f"{artist} {album}")
-            url = f"https://itunes.apple.com/search?term={query}&entity=album&limit=1"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            query = urllib.parse.quote(f'artist:"{artist}" AND release:"{album}"')
+            url = f"https://musicbrainz.org/ws/2/release/?query={query}&fmt=json"
+            req = urllib.request.Request(url, headers={'User-Agent': 'OpenVynilRipper/1.0 ( conrider3000@github )'})
             with urllib.request.urlopen(req) as response:
                 data = json.loads(response.read().decode())
                 
-            if data["resultCount"] > 0:
-                res = data["results"][0]
-                self.entries["artist"].delete(0, 'end')
-                self.entries["artist"].insert(0, res.get("artistName", artist))
-                self.entries["album"].delete(0, 'end')
-                self.entries["album"].insert(0, res.get("collectionName", album))
+            if data.get("releases"):
+                res = data["releases"][0]
                 
-                year = res.get("releaseDate", "")[:4]
+                # Preencher Artista (Pegando o primeiro artist-credit)
+                if res.get("artist-credit"):
+                    self.entries["artist"].delete(0, 'end')
+                    self.entries["artist"].insert(0, res["artist-credit"][0].get("name", artist))
+                    
+                # Preencher Álbum
+                self.entries["album"].delete(0, 'end')
+                self.entries["album"].insert(0, res.get("title", album))
+                
+                # Preencher Ano
+                year = res.get("date", "")[:4]
                 if year:
                     self.entries["year"].delete(0, 'end')
                     self.entries["year"].insert(0, year)
                     
-                messagebox.showinfo("Sucesso", f"Álbum encontrado na base de dados global!\n\n{res.get('collectionName')} ({year})")
+                messagebox.showinfo("Sucesso", f"Álbum encontrado na base de dados global (MusicBrainz)!\n\n{res.get('title')} ({year})")
             else:
-                messagebox.showinfo("Não encontrado", "Não encontramos esse álbum exato na base de dados.")
+                messagebox.showinfo("Não encontrado", "Não encontramos esse álbum exato na base do MusicBrainz.")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro de conexão: {e}")
 
@@ -388,6 +401,9 @@ class App(customtkinter.CTk):
         self.btn_stop = customtkinter.CTkButton(p_mid, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=40, state="disabled", command=self.on_stop_click)
         self.btn_stop.pack(side="left", padx=5)
         
+        self.chk_magic = customtkinter.CTkCheckBox(p_mid, text="🪄 Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_magic.pack(side="left", padx=15)
+        
         p_bot = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
         p_bot.pack(fill="x", padx=15, pady=10)
         
@@ -443,7 +459,15 @@ class App(customtkinter.CTk):
             if not messagebox.askyesno("Sobrescrever", f"O arquivo {side_name}.wav já existe.\nDeseja sobrescrever e gravar este lado novamente?"):
                 return
                 
-        self.engine.start_recording(wav_path)
+        if self.chk_magic.get():
+            self.engine.magic_wait = True
+            self.engine.magic_path = wav_path
+            self.engine.on_magic_trigger = lambda: self.after(0, lambda: self.lbl_status.configure(text=f"GRAVANDO O {side_name.upper()}...", text_color=COLOR_RED))
+            self.lbl_status.configure(text=f"AGUARDANDO O ÁUDIO COMEÇAR (MAGIC RECORD)...", text_color="#8a2be2")
+        else:
+            self.engine.start_recording(wav_path)
+            self.lbl_status.configure(text=f"GRAVANDO O {side_name.upper()}...", text_color=COLOR_RED)
+            
         self.btn_rec_a.configure(state="disabled")
         self.btn_rec_b.configure(state="disabled")
         self.btn_split.configure(state="disabled")
