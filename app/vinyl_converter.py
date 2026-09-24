@@ -241,13 +241,67 @@ class AnalogVUMeter(tk.Canvas):
         self.create_text(x, 114, text=text, fill=COLOR_TEXT2, font=(FONT_FAMILY, 8))
 
 class VirtualTurntable(customtkinter.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, app=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
+        self.app = app
         self.angle = 0
         self.is_playing = False
-        self.canvas = customtkinter.CTkCanvas(self, width=200, height=200, bg=COLOR_SURFACE, highlightthickness=0)
-        self.canvas.pack()
-        self.draw_vinyl()
+        self.label_path = None
+        self.tk_label_img = None
+        
+        self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.bind("<Configure>", lambda e: self.draw_vinyl())
+        self.canvas.bind("<Button-1>", self.open_camera)
+        
+    def open_camera(self, event=None):
+        if not self.app: return
+        import cv2, threading
+        from PIL import Image
+        if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
+            return
+            
+        self.cam_window = customtkinter.CTkToplevel(self)
+        self.cam_window.title("Tirar Foto do Rótulo Central")
+        self.cam_window.geometry("500x550")
+        self.cam_window.attributes("-topmost", True)
+        
+        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
+        lbl_cam.pack(fill="both", expand=True)
+        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR RÓTULO", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
+        btn_take.pack(pady=10)
+        
+        cap = cv2.VideoCapture(0)
+        self.taking_photo = False
+        
+        def update_cam():
+            if not self.cam_window.winfo_exists():
+                cap.release()
+                return
+            ret, frame = cap.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, _ = frame.shape
+                min_dim = min(h, w)
+                sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+                frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
+                img = Image.fromarray(frame_sq).resize((200, 200))
+                
+                if self.taking_photo:
+                    save_path = os.path.join(self.app.project_dir, "label.jpg")
+                    img.save(save_path, quality=90)
+                    cap.release()
+                    self.cam_window.destroy()
+                    self.label_path = save_path
+                    self.draw_vinyl()
+                    return
+                
+                ctk_img = customtkinter.CTkImage(light_image=img, size=(200, 200))
+                lbl_cam.configure(image=ctk_img)
+            self.after(30, update_cam)
+            
+        btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
+        update_cam()
         
     def set_playing(self, playing: bool):
         self.is_playing = playing
@@ -255,46 +309,115 @@ class VirtualTurntable(customtkinter.CTkFrame):
     def update_rotation(self):
         if self.is_playing:
             self.angle = (self.angle + 5) % 360
-        self.draw_vinyl()
+            self.draw_vinyl()
         
     def draw_vinyl(self):
         self.canvas.delete("all")
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w < 10 or h < 10: return
+        
+        cx, cy = w // 2, h // 2
+        r = min(w, h) // 2 - 10
+        
+        # outer black
+        self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill="#111", outline="#333", width=2)
+        # grooves
+        for i in range(1, 5):
+            gr = r - (r * 0.15 * i)
+            self.canvas.create_oval(cx-gr, cy-gr, cx+gr, cy+gr, outline="#222")
+            
+        label_r = r * 0.35
         import math
-        self.canvas.create_oval(10, 10, 190, 190, fill="#111", outline="#333", width=2)
-        self.canvas.create_oval(25, 25, 175, 175, outline="#222")
-        self.canvas.create_oval(40, 40, 160, 160, outline="#222")
-        self.canvas.create_oval(55, 55, 145, 145, outline="#222")
-        self.canvas.create_oval(70, 70, 130, 130, fill=COLOR_ACCENT, outline="")
-        rad = math.radians(self.angle)
-        x = 100 + 20 * math.cos(rad)
-        y = 100 + 20 * math.sin(rad)
-        self.canvas.create_oval(x-4, y-4, x+4, y+4, fill="#000", outline="")
-        self.canvas.create_oval(97, 97, 103, 103, fill=COLOR_SURFACE, outline="")
-        arm_angle = 35 if self.is_playing else 10
-        rad_arm = math.radians(arm_angle)
-        end_x = 180 - 100 * math.sin(rad_arm)
-        end_y = 20 + 100 * math.cos(rad_arm)
-        self.canvas.create_oval(170, 10, 190, 30, fill="#444", outline="")
-        self.canvas.create_line(180, 20, end_x, end_y, fill="#ccc", width=4)
-        hx = end_x - 8 * math.cos(rad_arm)
-        hy = end_y + 8 * math.sin(rad_arm)
-        self.canvas.create_polygon(end_x, end_y, hx, hy, hx-10, hy-10, end_x-10, end_y-10, fill="#666", outline="")
+        from PIL import Image, ImageTk, ImageDraw
+        
+        if self.label_path and os.path.exists(self.label_path):
+            img = Image.open(self.label_path).convert("RGBA")
+            size = int(label_r * 2)
+            img = img.resize((size, size))
+            mask = Image.new('L', (size, size), 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, size, size), fill=255)
+            img.putalpha(mask)
+            
+            img = img.rotate(-self.angle)
+            self.tk_label_img = ImageTk.PhotoImage(img)
+            self.canvas.create_image(cx, cy, image=self.tk_label_img)
+        else:
+            self.canvas.create_oval(cx-label_r, cy-label_r, cx+label_r, cy+label_r, fill=COLOR_ACCENT, outline="")
+            rad = math.radians(self.angle)
+            lx = cx + (label_r * 0.5) * math.cos(rad)
+            ly = cy + (label_r * 0.5) * math.sin(rad)
+            self.canvas.create_oval(lx-4, ly-4, lx+4, ly+4, fill="#000", outline="")
+            self.canvas.create_text(cx, cy-15, text="📸 RÓTULO", fill="#000", font=(FONT_FAMILY, 10, "bold"))
+            
+        self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=COLOR_BG, outline="")
 
 class CoverDisplay(customtkinter.CTkFrame):
-    def __init__(self, master, **kwargs):
+    def __init__(self, master, app=None, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
+        self.app = app
         self.front_path = None
         self.back_path = None
         self.showing_front = True
         
-        self.lbl_img = customtkinter.CTkLabel(self, text="SEM CAPA\n(Busque o Álbum)", width=200, height=200, fg_color=COLOR_BG, font=FONT_MAIN, text_color=COLOR_SURFACE2)
-        self.lbl_img.pack()
+        self.lbl_img = customtkinter.CTkLabel(self, text="📸 ADICIONAR CAPA", width=400, height=400, fg_color=COLOR_BG, font=FONT_TITLE, text_color=COLOR_SURFACE2)
+        self.lbl_img.pack(fill="both", expand=True)
+        self.lbl_img.bind("<Button-1>", self.open_camera)
         
         self.btn_flip = customtkinter.CTkButton(self, text="🔄 Virar Capa", width=200, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.flip_cover, state="disabled")
         self.btn_flip.pack(pady=(5, 0))
         
+    def open_camera(self, event=None):
+        import cv2, threading
+        from PIL import Image, ImageTk
+        if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
+            return
+            
+        self.cam_window = customtkinter.CTkToplevel(self)
+        self.cam_window.title("Tirar Foto da Capa")
+        self.cam_window.geometry("500x550")
+        self.cam_window.attributes("-topmost", True)
+        
+        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
+        lbl_cam.pack(fill="both", expand=True)
+        
+        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
+        btn_take.pack(pady=10)
+        
+        cap = cv2.VideoCapture(0)
+        self.taking_photo = False
+        
+        def update_cam():
+            if not self.cam_window.winfo_exists():
+                cap.release()
+                return
+            ret, frame = cap.read()
+            if ret:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                # Crop to square
+                h, w, _ = frame.shape
+                min_dim = min(h, w)
+                sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+                frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
+                img = Image.fromarray(frame_sq).resize((400, 400))
+                
+                if self.taking_photo:
+                    save_path = os.path.join(self.app.project_dir, "cover.jpg")
+                    img.save(save_path, quality=90)
+                    cap.release()
+                    self.cam_window.destroy()
+                    self.load_covers(save_path, self.back_path)
+                    return
+                
+                ctk_img = customtkinter.CTkImage(light_image=img, size=(400, 400))
+                lbl_cam.configure(image=ctk_img)
+            self.after(30, update_cam)
+            
+        btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
+        update_cam()
+        
     def load_covers(self, front_path, back_path):
-        from PIL import Image
         self.front_path = front_path
         self.back_path = back_path
         self.showing_front = True
@@ -309,10 +432,14 @@ class CoverDisplay(customtkinter.CTkFrame):
         from PIL import Image
         path = self.front_path if self.showing_front else self.back_path
         if path and os.path.exists(path):
-            img = customtkinter.CTkImage(light_image=Image.open(path), size=(200, 200))
-            self.lbl_img.configure(image=img, text="")
+            img = Image.open(path)
+            # Make sure it's big!
+            w = self.winfo_width() if self.winfo_width() > 10 else 400
+            ctk_img = customtkinter.CTkImage(light_image=img, size=(w, w))
+            self.lbl_img.configure(image=ctk_img, text="")
         else:
-            self.lbl_img.configure(image="", text="IMAGEM INDISPONÍVEL")
+            self.lbl_img.configure(image="", text="📸 ADICIONAR CAPA")
+
 
 CARTRIDGES = [
     "Audio-Technica AT95E", "Audio-Technica AT-VM95E", "Audio-Technica AT-VM95ML", "Audio-Technica AT-VM95SH",
@@ -432,20 +559,17 @@ class App(customtkinter.CTk):
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
-        showcase_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        showcase_frame.pack(fill="x", padx=10, pady=5)
+        main_container = customtkinter.CTkFrame(self, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
-        self.cover_display = CoverDisplay(showcase_frame)
-        self.cover_display.pack(side="left", padx=40)
+        left_col = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        left_col.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
-        self.turntable = VirtualTurntable(showcase_frame)
-        self.turntable.pack(side="left", padx=40)
+        right_col = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        right_col.pack(side="right", fill="both", expand=True, padx=(5, 0))
         
-        mid_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        mid_frame.pack(fill="x", padx=10, pady=5)
-        
-        dev_frame = customtkinter.CTkFrame(mid_frame, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        dev_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        dev_frame = customtkinter.CTkFrame(left_col, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
+        dev_frame.pack(fill="x")
         
         dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
         dev_top.pack(fill="x", pady=(10, 5), padx=15)
@@ -464,11 +588,17 @@ class App(customtkinter.CTk):
         self.vol_slider.set(1.0)
         self.vol_slider.pack(side="right", fill="x", expand=True, padx=(10, 0))
         
-        self.meta_card = MetadataCard(mid_frame, on_album_found=self._fetch_cover_art)
-        self.meta_card.pack(side="right", fill="both", expand=True, padx=(5, 0))
+        self.turntable = VirtualTurntable(left_col)
+        self.turntable.pack(fill="both", expand=True, pady=(10,0))
+        
+        self.meta_card = MetadataCard(right_col, on_album_found=self._fetch_cover_art)
+        self.meta_card.pack(fill="x")
+        
+        self.cover_display = CoverDisplay(right_col, app=self)
+        self.cover_display.pack(fill="both", expand=True, pady=(10,0))
         
         vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        vis_frame.pack(fill="x", padx=10, pady=10)
+        vis_frame.pack(fill="x", padx=10, pady=(5, 0))
         self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VU")
         self.vu_in.pack(side="left", padx=15, pady=15)
         self.waveform = RetroWaveform(vis_frame)
