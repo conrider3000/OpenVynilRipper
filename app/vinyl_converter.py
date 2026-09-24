@@ -220,25 +220,55 @@ class AnalogVUMeter(tk.Canvas):
     def __init__(self, master, label="VU", **kwargs):
         super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_TEXT3, width=90, height=120, **kwargs)
         self.label = label
+        self.style = 0
+        self.bind("<Button-1>", self.toggle_style)
         self.draw(0.0, 0.0)
+        
+    def toggle_style(self, event=None):
+        self.style = (self.style + 1) % 3
+        self.draw(0.0, 0.0)
+        
     def draw(self, vu_L, vu_R):
         self.delete("all")
-        self._draw_led_bar(x=25, amplitude=vu_L, text="L")
-        self._draw_led_bar(x=65, amplitude=vu_R, text="R")
         self.create_text(45, 12, text=self.label, fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
-    def _draw_led_bar(self, x, amplitude, text):
-        segmentos, seg_h, seg_gap = 14, 4, 2
-        filled = int(amplitude * segmentos * 2.5) 
-        if filled > segmentos: filled = segmentos
-        for i in range(segmentos):
-            y_bottom = 105 - i * (seg_h + seg_gap)
-            y_top = y_bottom - seg_h
-            if i >= filled: cor = COLOR_SURFACE2
-            elif i >= 11: cor = COLOR_RED
-            elif i >= 8: cor = COLOR_YELLOW
-            else: cor = COLOR_GREEN
-            self.create_rectangle(x-8, y_top, x+8, y_bottom, fill=cor, outline="")
-        self.create_text(x, 114, text=text, fill=COLOR_TEXT2, font=(FONT_FAMILY, 8))
+        self.create_text(25, 114, text="L", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
+        self.create_text(65, 114, text="R", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
+        
+        self._draw_channel(25, vu_L)
+        self._draw_channel(65, vu_R)
+
+    def _draw_channel(self, x, amplitude):
+        h_bar = 84
+        y_bottom = 105
+        
+        def get_color(ratio):
+            if ratio > 0.8: return COLOR_RED
+            if ratio > 0.6: return COLOR_YELLOW
+            return COLOR_GREEN
+
+        if self.style == 0:
+            blocks = 14
+            seg_h = 4
+            seg_gap = 2
+            filled = int(amplitude * blocks * 2.5)
+            if filled > blocks: filled = blocks
+            for i in range(blocks):
+                y_bot = y_bottom - i * (seg_h + seg_gap)
+                y_top = y_bot - seg_h
+                ratio = (i+1)/blocks
+                cor = get_color(ratio) if i < filled else COLOR_SURFACE2
+                self.create_rectangle(x-8, y_top, x+8, y_bot, fill=cor, outline="")
+        elif self.style == 1:
+            self.create_rectangle(x-8, y_bottom-h_bar, x+8, y_bottom, fill=COLOR_SURFACE2, outline="")
+            if amplitude > 0:
+                y = y_bottom - min(1.0, amplitude * 2.5)*h_bar
+                self.create_rectangle(x-8, y, x+8, y_bottom, fill=get_color(amplitude*2.5), outline="")
+        elif self.style == 2:
+            self.create_line(x, y_bottom, x, y_bottom-h_bar, fill=COLOR_SURFACE2, width=3)
+            if amplitude > 0:
+                y = y_bottom - min(1.0, amplitude * 2.5)*h_bar
+                self.create_line(x, y_bottom, x, y, fill=get_color(amplitude*2.5), width=3)
+                self.create_oval(x-4, y-4, x+4, y+4, fill="#FFF", outline="")
 
 class VirtualTurntable(customtkinter.CTkFrame):
     def __init__(self, master, app=None, **kwargs):
@@ -460,7 +490,7 @@ class MetadataCard(customtkinter.CTkFrame):
         top_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", pady=(10, 5), padx=15)
         
-        lbl_title = customtkinter.CTkLabel(top_frame, text="[ METADADOS DO ÁLBUM ]", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        lbl_title = customtkinter.CTkLabel(top_frame, text="[ INFORMAÇÕES DO DISCO ]", font=FONT_BOLD, text_color=COLOR_TEXT2)
         lbl_title.pack(side="left")
         
         btn_search = customtkinter.CTkButton(top_frame, text="🔍 Buscar Álbum", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.search_album)
@@ -573,7 +603,7 @@ class App(customtkinter.CTk):
         
         dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
         dev_top.pack(fill="x", pady=(10, 5), padx=15)
-        customtkinter.CTkLabel(dev_top, text="[ ROTEAMENTO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        customtkinter.CTkLabel(dev_top, text="[ CONEXÕES DE ÁUDIO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
         customtkinter.CTkButton(dev_top, text="🔄 Atualizar USB", width=80, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self._init_devices).pack(side="right")
         
         self.opt_in = customtkinter.CTkOptionMenu(dev_frame, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
@@ -855,13 +885,20 @@ class App(customtkinter.CTk):
     def on_closing(self):
         if self.engine.recording and not messagebox.askyesno("Sair", "Gravando! Fechar sem salvar?"):
             return
+            
+        choice = messagebox.askyesnocancel("Sair", "Deseja fechar o aplicativo?\n\n'Sim' para Fechar completamente.\n'Não' para Minimizar para a barra de tarefas.")
+        if choice is None:
+            return # Cancelar
+        elif choice is False:
+            self.iconify()
+            return # Minimizar
+            
         import os
         try:
             self.engine.stop_stream()
         except:
             pass
         os._exit(0)
-
 if __name__ == "__main__":
     app = App()
     app.mainloop()
