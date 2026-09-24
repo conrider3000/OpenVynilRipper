@@ -523,15 +523,58 @@ class CoverDisplay(customtkinter.CTkFrame):
 
 
 CARTRIDGES = [
-    "Leson AG-180 Diamante", "Leson Axxis",
-    "Audio-Technica AT95E", "Audio-Technica AT-VM95E", "Audio-Technica AT-VM95ML", "Audio-Technica AT-VM95SH",
-    "Ortofon 2M Red", "Ortofon 2M Blue", "Ortofon 2M Bronze", "Ortofon 2M Black", "Ortofon OM5E", "Ortofon OM10",
-    "Shure M44-7", "Shure M97xE", "Shure V15 Type III", "Shure V15 Type IV",
-    "Nagaoka MP-110", "Nagaoka MP-150", "Nagaoka MP-200",
-    "Goldring E3", "Goldring 1042", "Rega Carbon", "Rega Elys 2", "Rega Exact",
-    "Denon DL-103", "Denon DL-110", "Sumiko Pearl", "Sumiko Moonstone",
-    "Grado Prestige Green", "Grado Prestige Gold", "Clearaudio Concept V2", 
-    "ION (Agulha Cerâmica Padrão)", "ION (Agulha Safira/Rubi)"
+    # Leson / Nacionais (Brasil)
+    "Leson AG-180 Diamante", "Leson Axxis", "Leson Axxis I", "Leson Axxis II", "Leson AG-80", "Leson AG-90", "Leson PTC", "Leson LM",
+    # Audio-Technica
+    "Audio-Technica AT95E", "Audio-Technica AT-VM95C", "Audio-Technica AT-VM95E", "Audio-Technica AT-VM95EN", "Audio-Technica AT-VM95ML", "Audio-Technica AT-VM95SH",
+    "Audio-Technica AT3600L", "Audio-Technica AT81CP", "Audio-Technica AT85EP", "Audio-Technica AT-VM520EB", "Audio-Technica AT-VM530EN",
+    "Audio-Technica AT-VM540ML", "Audio-Technica AT-VM740ML", "Audio-Technica AT-VM750SH", "Audio-Technica AT-VM760SLC", "Audio-Technica AT-OC9XEB", 
+    "Audio-Technica AT-OC9XEN", "Audio-Technica AT-OC9XML", "Audio-Technica AT-OC9XSH", "Audio-Technica AT-OC9XSL", "Audio-Technica AT-ART9XI",
+    # Ortofon
+    "Ortofon 2M Red", "Ortofon 2M Blue", "Ortofon 2M Bronze", "Ortofon 2M Black", "Ortofon 2M Black LVB 250", "Ortofon 2M Mono", "Ortofon 2M 78",
+    "Ortofon OM5E", "Ortofon OM10", "Ortofon OM20", "Ortofon OM30", "Ortofon OM40", "Ortofon Super OM5E", 
+    "Ortofon Concorde Mix", "Ortofon Concorde DJ", "Ortofon Concorde Club", "Ortofon Concorde Scratch", "Ortofon Concorde Digital", 
+    "Ortofon Quintet Red", "Ortofon Quintet Blue", "Ortofon Quintet Bronze", "Ortofon Quintet Black S", 
+    "Ortofon Cadenza Red", "Ortofon Cadenza Blue", "Ortofon Cadenza Bronze", "Ortofon Cadenza Black",
+    # Shure
+    "Shure M44-7", "Shure M44G", "Shure M97xE", "Shure V15 Type III", "Shure V15 Type IV", "Shure V15 Type V", "Shure SC35C", "Shure M92E", "Shure Whitelabel", "Shure M75ED",
+    # Nagaoka
+    "Nagaoka MP-110", "Nagaoka MP-150", "Nagaoka MP-200", "Nagaoka MP-300", "Nagaoka MP-500", "Nagaoka JT-80BK", "Nagaoka JT-80LB",
+    # Goldring
+    "Goldring E1", "Goldring E2", "Goldring E3", "Goldring E4", "Goldring 1006", "Goldring 1012GX", "Goldring 1022GX", "Goldring 1042", "Goldring Eroica LX", "Goldring Eroica H", "Goldring Elite", "Goldring Ethos",
+    # Rega
+    "Rega Carbon", "Rega Nd3", "Rega Nd5", "Rega Nd7", "Rega Bias 2", "Rega Elys 2", "Rega Exact", "Rega Ania", "Rega Ania Pro", "Rega Apheta 3", "Rega Aphelion 2",
+    # Denon
+    "Denon DL-103", "Denon DL-103R", "Denon DL-110", "Denon DL-301 II", "Denon DL-160", "Denon DL-A110",
+    # Sumiko
+    "Sumiko Oyster", "Sumiko Black Pearl", "Sumiko Pearl", "Sumiko Rainier", "Sumiko Olympia", "Sumiko Moonstone", "Sumiko Wellfleet", "Sumiko Amethyst",
+    "Sumiko Blue Point No. 3", "Sumiko Songbird", "Sumiko Starling",
+    # Grado
+    "Grado Prestige Black", "Grado Prestige Green", "Grado Prestige Blue", "Grado Prestige Red", "Grado Prestige Silver", "Grado Prestige Gold",
+    "Grado Opus3", "Grado Platinum3", "Grado Sonata3", "Grado Master3", "Grado Reference3",
+    # Clearaudio
+    "Clearaudio Concept V2", "Clearaudio Performer V2", "Clearaudio Artist V2", "Clearaudio Virtuoso V2", "Clearaudio Maestro V2",
+    "Clearaudio Concept MC", "Clearaudio Essence MC", "Clearaudio Talismann V2 Gold", "Clearaudio Concerto V2", "Clearaudio Stradivari V2",
+    # Stanton
+    "Stanton 500", "Stanton 500 AL", "Stanton 680", "Stanton 681EEE", "Stanton 881S", "Stanton Trackmaster", "Stanton Groovemaster",
+    # Pickering
+    "Pickering V-15", "Pickering XV-15", "Pickering XSV/3000",
+    # Dynavector
+    "Dynavector 10X5 MkII", "Dynavector 20X2", "Dynavector Karat 17DX", "Dynavector XX-2 MkII", "Dynavector Te Kaitora Rua", "Dynavector DRT XV-1s",
+    # Soundsmith
+    "Soundsmith Otello", "Soundsmith Carmen", "Soundsmith Zephyr", "Soundsmith Aida", "Soundsmith Sussurro", "Soundsmith Paua",
+    # Lyra
+    "Lyra Delos", "Lyra Kleos", "Lyra Etna", "Lyra Atlas",
+    # Benz Micro
+    "Benz Micro MC Gold", "Benz Micro MC Silver", "Benz Micro ACE", "Benz Micro Glider", "Benz Micro Wood", "Benz Micro Zebra", "Benz Micro Ruby", "Benz Micro Gullwing",
+    # Hana
+    "Hana E", "Hana S", "Hana M", "Hana Umami Red", "Hana Umami Blue",
+    # Koetsu
+    "Koetsu Black", "Koetsu Rosewood", "Koetsu Urushi", "Koetsu Onyx Platinum",
+    # Pioneer / DJ / Numark
+    "Pioneer PC-HS01", "Pioneer PN-X05", "Numark CC-1", "Numark CS-1", "Numark Groovetool",
+    # ION / Crosley / Genéricas
+    "ION (Agulha Cerâmica Padrão Pz51)", "ION (Agulha Safira/Rubi CZ-800)", "Chuo Denshi CZ-800", "Crosley NP1 / NP6"
 ]
 
 class MetadataCard(customtkinter.CTkFrame):
