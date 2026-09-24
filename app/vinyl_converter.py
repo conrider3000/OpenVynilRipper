@@ -714,8 +714,8 @@ class App(customtkinter.CTk):
         
         top_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
         top_row.pack(fill="x")
-        top_row.columnconfigure(0, weight=1)
-        top_row.columnconfigure(1, weight=1)
+        top_row.columnconfigure(0, weight=1, uniform="a")
+        top_row.columnconfigure(1, weight=1, uniform="a")
         top_row.rowconfigure(0, weight=1)
         
         dev_frame = customtkinter.CTkFrame(top_row, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
@@ -743,8 +743,8 @@ class App(customtkinter.CTk):
         
         mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
         mid_row.pack(fill="both", expand=True, pady=(10,0))
-        mid_row.columnconfigure(0, weight=1)
-        mid_row.columnconfigure(1, weight=1)
+        mid_row.columnconfigure(0, weight=1, uniform="a")
+        mid_row.columnconfigure(1, weight=1, uniform="a")
         mid_row.rowconfigure(0, weight=1)
         
         self.turntable = VirtualTurntable(mid_row, app=self)
