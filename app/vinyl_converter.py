@@ -880,7 +880,7 @@ class FileBrowser(customtkinter.CTkFrame):
             import os
             os.startfile(self.app.project_dir)
             
-        customtkinter.CTkButton(top, text="📁↗", width=40, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
+        customtkinter.CTkButton(top, text="Abrir Pasta", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
         customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.app._choose_folder).pack(side="right")
         
         self.scroll = customtkinter.CTkScrollableFrame(self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2)
