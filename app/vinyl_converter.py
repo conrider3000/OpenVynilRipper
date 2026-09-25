@@ -839,26 +839,29 @@ class CollapsibleFrame(customtkinter.CTkFrame):
     def __init__(self, master, title, **kwargs):
         super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
         self.is_collapsed = False
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
         
         self.header = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.header.pack(fill="x", padx=15, pady=10)
+        self.header.grid(row=0, column=0, sticky="ew", padx=15, pady=10)
         
         self.lbl_title = customtkinter.CTkLabel(self.header, text=title, font=FONT_BOLD, text_color=COLOR_TEXT)
         self.lbl_title.pack(side="left")
         
-        self.btn_toggle = customtkinter.CTkButton(self.header, text="▼", width=30, height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, corner_radius=4, command=self.toggle)
+        # Orange arrow
+        self.btn_toggle = customtkinter.CTkButton(self.header, text="▼", width=30, height=24, fg_color="transparent", text_color=COLOR_ACCENT, hover_color=COLOR_SURFACE2, font=FONT_BOLD, corner_radius=4, command=self.toggle)
         self.btn_toggle.pack(side="right")
         
         self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True)
+        self.content_frame.grid(row=1, column=0, sticky="nsew")
         
     def toggle(self):
         if self.is_collapsed:
-            self.content_frame.pack(fill="both", expand=True)
+            self.content_frame.grid(row=1, column=0, sticky="nsew")
             self.btn_toggle.configure(text="▼")
             self.is_collapsed = False
         else:
-            self.content_frame.pack_forget()
+            self.content_frame.grid_remove()
             self.btn_toggle.configure(text="▲")
             self.is_collapsed = True
 
