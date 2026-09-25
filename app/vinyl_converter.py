@@ -284,6 +284,11 @@ class VirtualTurntable(customtkinter.CTkFrame):
         self.bind("<Configure>", lambda e: self.draw_vinyl())
         self.canvas.bind("<Button-1>", self.open_camera)
         
+        ctrl_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        ctrl_frame.pack(fill="x", pady=(5, 0))
+        self.btn_add_label = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Rótulo", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
+        self.btn_add_label.pack()
+        
     def open_camera(self, event=None):
         if not self.app: return
         import cv2, threading
@@ -421,8 +426,14 @@ class CoverDisplay(customtkinter.CTkFrame):
         self.lbl_img.pack(fill="both", expand=True)
         self.lbl_img.bind("<Button-1>", self.open_camera)
         
-        self.btn_flip = customtkinter.CTkButton(self, text="🔄 Virar Capa", width=200, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.flip_cover, state="disabled")
-        self.btn_flip.pack(pady=(5, 0))
+        ctrl_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        ctrl_frame.pack(fill="x", pady=(5, 0))
+        
+        self.btn_flip = customtkinter.CTkButton(ctrl_frame, text="🔄 Virar Capa", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.flip_cover, state="disabled")
+        self.btn_flip.pack(side="left", padx=5, expand=True)
+        
+        self.btn_add_cover = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Capa", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
+        self.btn_add_cover.pack(side="right", padx=5, expand=True)
         
     def open_camera(self, event=None):
         import cv2, threading
