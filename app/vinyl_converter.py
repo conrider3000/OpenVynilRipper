@@ -716,25 +716,6 @@ class MetadataCard(customtkinter.CTkFrame):
     def get_metadata(self):
         return {key: ent.get().strip() for key, ent in self.entries.items()}
 
-class App(customtkinter.CTk):
-    def __init__(self):
-        super().__init__()
-        self.engine = AudioEngine()
-        self.engine.on_time_update = self.on_time_update
-        self.project_dir = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "MeuDisco")
-        os.makedirs(self.project_dir, exist_ok=True)
-        
-        self.title("OPEN VYNIL RIPPER - ANALOG EDITION")
-        self.geometry("950x950")
-        self.resizable(True, True) # Permite Tela Cheia
-        self.configure(fg_color=COLOR_BG)
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
-        
-        self._build_ui()
-        self._init_devices()
-        self._ui_update_loop()
-        
-
 class FileBrowser(customtkinter.CTkFrame):
     def __init__(self, master, app, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
@@ -780,6 +761,25 @@ class FileBrowser(customtkinter.CTkFrame):
             new_path = os.path.join(os.path.dirname(self.app.project_dir), name)
             os.makedirs(new_path, exist_ok=True)
             self.app.set_project_dir(new_path)
+
+class App(customtkinter.CTk):
+    def __init__(self):
+        super().__init__()
+        self.engine = AudioEngine()
+        self.engine.on_time_update = self.on_time_update
+        self.project_dir = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "MeuDisco")
+        os.makedirs(self.project_dir, exist_ok=True)
+        
+        self.title("OPEN VYNIL RIPPER - ANALOG EDITION")
+        self.geometry("950x950")
+        self.resizable(True, True) # Permite Tela Cheia
+        self.configure(fg_color=COLOR_BG)
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        self._build_ui()
+        self._init_devices()
+        self._ui_update_loop()
+        
 
     def _build_ui(self):
         header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=50, corner_radius=0)
