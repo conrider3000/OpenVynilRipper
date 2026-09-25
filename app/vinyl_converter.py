@@ -243,8 +243,15 @@ class RetroWaveform(tk.Canvas):
     def __init__(self, master, **kwargs):
         super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_TEXT3, width=400, height=120, **kwargs)
         self.history = collections.deque(maxlen=400)
+        self.style = 0
+        self.bind("<Button-1>", self.toggle_style)
+        
+    def toggle_style(self, event):
+        self.style = (self.style + 1) % 3
+        
     def add_sample(self, amplitude: float):
         self.history.append(amplitude)
+        
     def redraw(self):
         self.delete("all")
         w = self.winfo_width()
@@ -252,16 +259,23 @@ class RetroWaveform(tk.Canvas):
         if w < 10 or h < 10: return
         
         mid_y = h / 2
-        self.create_line(0, mid_y, w, mid_y, fill=COLOR_TEXT3, width=1, dash=(2, 4))
-        
-        if not self.history: return
-        step = w / 400.0 # Mantém 400 amostras, mas estica no eixo X
+        step = w / 400.0 if self.history else 1
         
         for i, amp in enumerate(self.history):
-            height_px = int(amp * (h / 2 - 5))
-            cor = COLOR_ACCENT if amp < 0.8 else COLOR_RED
             x = int(i * step)
-            self.create_line(x, mid_y - height_px, x, mid_y + height_px, fill=cor, width=2 if step > 2 else 1)
+            ah = int(amp * (h / 2 - 5))
+            
+            if self.style == 0:
+                self.create_line(x, mid_y - ah, x, mid_y + ah, fill=COLOR_ACCENT, width=2 if step > 2 else 1)
+            elif self.style == 1:
+                self.create_rectangle(x, mid_y - ah, x + max(1, int(step)), mid_y + ah, fill=COLOR_TEXT, outline="")
+            else:
+                self.create_oval(x, mid_y - ah - 2, x + 2, mid_y - ah, fill=COLOR_RED, outline="")
+                self.create_oval(x, mid_y + ah, x + 2, mid_y + ah + 2, fill=COLOR_RED, outline="")
+                self.create_line(x, mid_y, x + 2, mid_y, fill=COLOR_ACCENT)
+                
+        self.create_line(0, mid_y, w, mid_y, fill=COLOR_SURFACE2, dash=(2, 2))
+        self.create_text(w - 60, 15, text="[MUDAR ANIMAÇÃO]", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
 
 class AnalogVUMeter(tk.Canvas):
     def __init__(self, master, label="VU", **kwargs):
@@ -325,20 +339,38 @@ class VirtualTurntable(customtkinter.CTkFrame):
         self.is_playing = False
         self.label_path = None
         self.tk_label_img = None
+        self.hover_active = False
         
         self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.bind("<Configure>", lambda e: self.draw_vinyl())
         self.canvas.bind("<Button-1>", self.open_camera)
+        self.canvas.bind("<Motion>", self.on_motion)
+        self.canvas.bind("<Leave>", self.on_leave)
         
-        ctrl_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        ctrl_frame.pack(fill="x", pady=(5, 0))
-        self.btn_add_label = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Rótulo", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
-        self.btn_add_label.pack()
-        
+    def on_motion(self, event):
+        w = self.winfo_width()
+        h = self.winfo_height()
+        cx, cy = w/2, h/2
+        r = min(w, h)/2 - 10
+        label_r = r * 0.35
+        dist = ((event.x - cx)**2 + (event.y - cy)**2)**0.5
+        hover = dist <= label_r
+        if hover != self.hover_active:
+            self.hover_active = hover
+            self.draw_vinyl()
+            
+    def on_leave(self, event):
+        if self.hover_active:
+            self.hover_active = False
+            self.draw_vinyl()
+            
     def open_camera(self, event=None):
+        if event and not getattr(self, 'hover_active', False):
+            return
         if not self.app: return
         import cv2, threading
+
         from PIL import Image
         if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
             return
@@ -473,24 +505,66 @@ class VirtualTurntable(customtkinter.CTkFrame):
             
         self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=COLOR_BG, outline="")
 
+
 class CoverDisplay(customtkinter.CTkFrame):
-    def __init__(self, master, app=None, title="📸 ADICIONAR CAPA", **kwargs):
+    def __init__(self, master, app=None, title="CAPA", **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.app = app
-        self.cover_path = None
         self.title_text = title
+        self.cover_path = None
+        self.original_img = None
+        self.img_normal = None
+        self.img_hover = None
+        self.hover_active = False
+        self._resize_timer = None
         
         self.lbl_img = customtkinter.CTkLabel(self, text=title, fg_color=COLOR_BG, font=FONT_TITLE, text_color=COLOR_SURFACE2)
-        self.lbl_img.pack(fill="both", expand=True)
+        self.lbl_img.pack(fill="both", expand=True, padx=2, pady=2)
         self.lbl_img.bind("<Button-1>", self.open_camera)
+        self.lbl_img.bind("<Enter>", self.on_hover)
+        self.lbl_img.bind("<Leave>", self.on_leave)
+        self.lbl_img.bind("<Configure>", self.on_resize)
+
+    def on_resize(self, event):
+        if not self.original_img: return
+        if self._resize_timer:
+            self.after_cancel(self._resize_timer)
+        self._resize_timer = self.after(200, self._apply_resize)
+
+    def _apply_resize(self):
+        w, h = self.lbl_img.winfo_width(), self.lbl_img.winfo_height()
+        if w < 10 or h < 10 or not self.original_img: return
+        dim = min(w, h)
         
-        ctrl_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        ctrl_frame.pack(fill="x", pady=(5, 0))
+        from PIL import Image, ImageEnhance, ImageDraw
+        img = self.original_img.resize((dim, dim), Image.Resampling.LANCZOS)
+        self.img_normal = customtkinter.CTkImage(light_image=img, size=(dim, dim))
         
-        self.btn_add_cover = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Imagem", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
-        self.btn_add_cover.pack(fill="x", expand=True)
+        h_img = img.copy()
+        h_img = ImageEnhance.Brightness(h_img).enhance(0.4)
+        draw = ImageDraw.Draw(h_img)
+        text = f"TROCAR {self.title_text.upper()}"
+        draw.text((dim//2, dim//2), text, fill=(255, 255, 255), anchor="mm")
+        self.img_hover = customtkinter.CTkImage(light_image=h_img, size=(dim, dim))
+        
+        if self.hover_active:
+            self.lbl_img.configure(image=self.img_hover, text="")
+        else:
+            self.lbl_img.configure(image=self.img_normal, text="")
+
+    def on_hover(self, event):
+        self.hover_active = True
+        if getattr(self, 'img_hover', None):
+            self.lbl_img.configure(image=self.img_hover)
+            
+    def on_leave(self, event):
+        self.hover_active = False
+        if getattr(self, 'img_normal', None):
+            self.lbl_img.configure(image=self.img_normal)
 
     def open_camera(self, event=None):
+
+
         import cv2, threading
         from PIL import Image, ImageTk
         if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
@@ -576,14 +650,12 @@ class CoverDisplay(customtkinter.CTkFrame):
         
     def load_cover(self, path):
         self.cover_path = path
-        if not path or not os.path.exists(path):
+        if not path or not __import__('os').path.exists(path):
             self.lbl_img.configure(image="", text=self.title_text)
             return
-        from PIL import Image, ImageTk
-        img = Image.open(path).convert("RGB")
-        img = img.resize((400, 400))
-        self.tk_img = customtkinter.CTkImage(light_image=img, size=(400, 400))
-        self.lbl_img.configure(image=self.tk_img, text="")
+        from PIL import Image
+        self.original_img = Image.open(path).convert("RGB")
+        self._apply_resize()
         
     def flip_cover(self):
         pass
@@ -834,6 +906,15 @@ class FileBrowser(customtkinter.CTkFrame):
             os.makedirs(new_path, exist_ok=True)
             self.app.set_project_dir(new_path)
 
+
+class VUPanel(customtkinter.CTkFrame):
+    def __init__(self, master, title, knob_label, command, init_val, max_val, **kwargs):
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        self.vu = AnalogVUMeter(self, label=title)
+        self.vu.pack(side="left", padx=(10, 5), pady=10)
+        self.knob = RotaryKnob(self, label=knob_label, command=command, init_val=init_val, max_val=max_val)
+        self.knob.pack(side="left", padx=(5, 10), pady=10)
+
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
@@ -858,15 +939,6 @@ class App(customtkinter.CTk):
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
-        # We will pack the Visualizer Frame in the middle, and the Bottom Frame at the bottom
-        vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        vis_frame.pack(fill="x", padx=10, pady=(5, 0), side="bottom")
-        
-        bottom_row = customtkinter.CTkFrame(self, fg_color="transparent")
-        bottom_row.pack(fill="x", padx=10, pady=5, side="bottom")
-        bottom_row.columnconfigure(0, weight=1, uniform="c")
-        bottom_row.columnconfigure(1, weight=1, uniform="c")
-        
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -875,7 +947,6 @@ class App(customtkinter.CTk):
         top_row.columnconfigure(0, weight=1, uniform="a")
         top_row.columnconfigure(1, weight=1, uniform="a")
         
-        # Audio Connections (Collapsible)
         dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
         dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         dev_content = dev_frame.content_frame
@@ -888,7 +959,6 @@ class App(customtkinter.CTk):
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
         self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         
-        # 3 Columns Layout (Mid Row)
         mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
         mid_row.pack(fill="both", expand=True, pady=(10,0))
         mid_row.columnconfigure(0, weight=1, uniform="b")
@@ -897,35 +967,42 @@ class App(customtkinter.CTk):
         mid_row.rowconfigure(0, weight=1)
         
         self.turntable = VirtualTurntable(mid_row, app=self)
-        self.turntable.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        self.turntable.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
         
-        # Pass the Pink Floyd defaults
+        import os
         pf_front = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_front.jpg")
         pf_back = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_back.jpg")
         
         self.cover_front = CoverDisplay(mid_row, app=self, title="Capa Frontal")
-        self.cover_front.grid(row=0, column=1, sticky="nsew", padx=(5, 5))
+        self.cover_front.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
         self.cover_front.load_cover(pf_front)
         
         self.cover_back = CoverDisplay(mid_row, app=self, title="Contracapa")
-        self.cover_back.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+        self.cover_back.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
         self.cover_back.load_cover(pf_back)
         
-        # Visualizer with Knobs
-        self.knob_in = RotaryKnob(vis_frame, label="INPUT GAIN", command=self._on_input_gain, init_val=1.0, max_val=3.0)
-        self.knob_in.pack(side="left", padx=(15, 5), pady=15)
-        self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VOL.")
-        self.vu_in.pack(side="left", padx=(5, 15), pady=15)
+        # vis_frame ABOVE bottom_row
+        vis_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        vis_frame.pack(fill="x", padx=10, pady=(5, 5))
+        
+        # panel_in (left side) -> INPUT VU & INPUT GAIN
+        self.panel_in = VUPanel(vis_frame, title="INPUT VU", knob_label="GAIN", command=self._on_input_gain, init_val=1.0, max_val=3.0)
+        self.panel_in.pack(side="left", padx=(0, 5))
+        self.vu_in = self.panel_in.vu # Bind for audio callback
         
         self.waveform = RetroWaveform(vis_frame)
-        self.waveform.pack(side="left", expand=True, fill="both", pady=15)
+        self.waveform.pack(side="left", expand=True, fill="both", padx=5)
         
-        self.vu_out = AnalogVUMeter(vis_frame, label="MONITOR VOL.")
-        self.vu_out.pack(side="right", padx=(15, 5), pady=15)
-        self.knob_out = RotaryKnob(vis_frame, label="MONITOR GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
-        self.knob_out.pack(side="right", padx=(5, 15), pady=15)
+        # panel_out (right side) -> MONITOR VU & MONITOR GAIN
+        self.panel_out = VUPanel(vis_frame, title="MONITOR VU", knob_label="GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
+        self.panel_out.pack(side="right", padx=(5, 0))
+        self.vu_out = self.panel_out.vu # Bind for audio callback
         
-        # Bottom Recorder vs Browser
+        bottom_row = customtkinter.CTkFrame(self, fg_color="transparent")
+        bottom_row.pack(fill="x", padx=10, pady=(5, 10))
+        bottom_row.columnconfigure(0, weight=1, uniform="c")
+        bottom_row.columnconfigure(1, weight=1, uniform="c")
+        
         rec_col = CollapsibleFrame(bottom_row, title="[ G R A V A D O R ]")
         rec_col.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         trans_frame = rec_col.content_frame
