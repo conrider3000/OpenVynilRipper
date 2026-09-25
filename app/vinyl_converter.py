@@ -743,7 +743,6 @@ class FileBrowser(customtkinter.CTkFrame):
         self.lbl_path.configure(text=os.path.basename(self.app.project_dir) or self.app.project_dir)
         for w in self.scroll.winfo_children(): w.destroy()
         
-        import os
         parent = os.path.dirname(self.app.project_dir)
         try:
             for d in os.listdir(parent):
@@ -757,7 +756,6 @@ class FileBrowser(customtkinter.CTkFrame):
         import tkinter.simpledialog
         name = tkinter.simpledialog.askstring("Nova Pasta", "Nome do novo disco:")
         if name:
-            import os
             new_path = os.path.join(os.path.dirname(self.app.project_dir), name)
             os.makedirs(new_path, exist_ok=True)
             self.app.set_project_dir(new_path)
