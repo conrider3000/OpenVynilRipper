@@ -42,6 +42,9 @@ class AudioEngine:
         self.writer = None
         self.output_path = None
         self.monitor_volume = 1.0
+        self.input_gain = 1.0
+        self.silence_frames = 0
+        self.trigger_auto_stop = False
         
         self.waveform_buffer = collections.deque(maxlen=400)
         self.elapsed_seconds = 0.0
@@ -95,6 +98,8 @@ class AudioEngine:
         if self.paused:
             outdata[:] = np.zeros_like(outdata)
             return
+            
+        indata = indata * self.input_gain
         outdata[:] = indata * self.monitor_volume
         
         amplitude_chunk = float(np.max(np.abs(indata)))
@@ -106,7 +111,14 @@ class AudioEngine:
         if self.recording and self.writer is not None:
             self.writer.write(indata)
             self.elapsed_seconds += frames / self.sample_rate
-            if self.on_time_update: self.on_time_update(self.elapsed_seconds)
+            if hasattr(self, 'on_time_update') and self.on_time_update: self.on_time_update(self.elapsed_seconds)
+            
+            if amplitude_chunk < 0.02:
+                self.silence_frames += frames
+                if self.silence_frames / self.sample_rate >= 30.0:
+                    self.trigger_auto_stop = True
+            else:
+                self.silence_frames = 0
                 
         if indata.shape[1] > 0:
             in_vu_L = float(np.sqrt(np.mean(indata[:, 0]**2)))
@@ -716,6 +728,33 @@ class MetadataCard(customtkinter.CTkFrame):
     def get_metadata(self):
         return {key: ent.get().strip() for key, ent in self.entries.items()}
 
+class CollapsibleFrame(customtkinter.CTkFrame):
+    def __init__(self, master, title, **kwargs):
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        self.is_collapsed = False
+        
+        self.header = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.header.pack(fill="x", padx=15, pady=10)
+        
+        self.lbl_title = customtkinter.CTkLabel(self.header, text=title, font=FONT_BOLD, text_color=COLOR_TEXT)
+        self.lbl_title.pack(side="left")
+        
+        self.btn_toggle = customtkinter.CTkButton(self.header, text="▼", width=30, height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, corner_radius=4, command=self.toggle)
+        self.btn_toggle.pack(side="right")
+        
+        self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True)
+        
+    def toggle(self):
+        if self.is_collapsed:
+            self.content_frame.pack(fill="both", expand=True)
+            self.btn_toggle.configure(text="▼")
+            self.is_collapsed = False
+        else:
+            self.content_frame.pack_forget()
+            self.btn_toggle.configure(text="▲")
+            self.is_collapsed = True
+
 class FileBrowser(customtkinter.CTkFrame):
     def __init__(self, master, app, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
@@ -731,7 +770,7 @@ class FileBrowser(customtkinter.CTkFrame):
             import os
             os.startfile(self.app.project_dir)
             
-        customtkinter.CTkButton(top, text="Abrir no Explorer", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
+        customtkinter.CTkButton(top, text="📁↗", width=40, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
         customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.app._choose_folder).pack(side="right")
         
         self.scroll = customtkinter.CTkScrollableFrame(self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2)
@@ -784,11 +823,14 @@ class App(customtkinter.CTk):
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
-        proj_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
-        proj_frame.pack(fill="x", padx=10, pady=5, side="bottom")
-        
+        # We will pack the Visualizer Frame in the middle, and the Bottom Frame at the bottom
         vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
         vis_frame.pack(fill="x", padx=10, pady=(5, 0), side="bottom")
+        
+        bottom_row = customtkinter.CTkFrame(self, fg_color="transparent")
+        bottom_row.pack(fill="x", padx=10, pady=5, side="bottom")
+        bottom_row.columnconfigure(0, weight=1, uniform="c")
+        bottom_row.columnconfigure(1, weight=1, uniform="c")
         
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
@@ -797,44 +839,16 @@ class App(customtkinter.CTk):
         top_row.pack(fill="x")
         top_row.columnconfigure(0, weight=1, uniform="a")
         top_row.columnconfigure(1, weight=1, uniform="a")
-        top_row.rowconfigure(0, weight=1)
         
         # Audio Connections (Collapsible)
-        dev_frame = customtkinter.CTkFrame(top_row, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
+        dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
         dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        
-        dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
-        dev_top.pack(fill="x", pady=(10, 5), padx=15)
-        customtkinter.CTkLabel(dev_top, text="[ CONEXÕES DE ÁUDIO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        
-        def toggle_dev():
-            if hasattr(self, 'dev_collapsed') and self.dev_collapsed:
-                dev_content.pack(fill="both", expand=True)
-                btn_dev_toggle.configure(text="[-]")
-                self.dev_collapsed = False
-            else:
-                dev_content.pack_forget()
-                btn_dev_toggle.configure(text="[+]")
-                self.dev_collapsed = True
-                
-        btn_dev_toggle = customtkinter.CTkButton(dev_top, text="[-]", width=30, height=24, fg_color="transparent", font=FONT_BOLD, command=toggle_dev)
-        btn_dev_toggle.pack(side="right", padx=(10, 0))
-        customtkinter.CTkButton(dev_top, text="🔄 Atualizar", width=80, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self._init_devices).pack(side="right")
-        
-        dev_content = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
-        dev_content.pack(fill="both", expand=True)
-        self.dev_collapsed = False
+        dev_content = dev_frame.content_frame
         
         self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_in.pack(fill="x", padx=15, pady=5)
         self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_out.pack(fill="x", padx=15, pady=5)
-        vol_frame = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        vol_frame.pack(fill="x", padx=15, pady=15)
-        customtkinter.CTkLabel(vol_frame, text="VOL. MONITOR:", font=FONT_MAIN, text_color=COLOR_TEXT).pack(side="left")
-        self.vol_slider = customtkinter.CTkSlider(vol_frame, from_=0, to=1.5, button_color=COLOR_ACCENT, progress_color=COLOR_ACCENT, command=self._on_volume_change)
-        self.vol_slider.set(1.0)
-        self.vol_slider.pack(side="right", fill="x", expand=True, padx=(10, 0))
         
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
         self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -850,63 +864,107 @@ class App(customtkinter.CTk):
         self.turntable = VirtualTurntable(mid_row, app=self)
         self.turntable.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
+        # Pass the Pink Floyd defaults
+        pf_front = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_front.jpg")
+        pf_back = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_back.jpg")
+        
         self.cover_front = CoverDisplay(mid_row, app=self, title="Capa Frontal")
         self.cover_front.grid(row=0, column=1, sticky="nsew", padx=(5, 5))
+        self.cover_front.load_cover(pf_front)
         
         self.cover_back = CoverDisplay(mid_row, app=self, title="Contracapa")
         self.cover_back.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+        self.cover_back.load_cover(pf_back)
         
-        # Bottom Visuals
-        self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VU")
-        self.vu_in.pack(side="left", padx=15, pady=15)
+        # Visualizer with Knobs
+        self.knob_in = RotaryKnob(vis_frame, label="INPUT GAIN", command=self._on_input_gain, init_val=1.0, max_val=3.0)
+        self.knob_in.pack(side="left", padx=(15, 5), pady=15)
+        self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VOL.")
+        self.vu_in.pack(side="left", padx=(5, 15), pady=15)
+        
         self.waveform = RetroWaveform(vis_frame)
         self.waveform.pack(side="left", expand=True, fill="both", pady=15)
-        self.vu_out = AnalogVUMeter(vis_frame, label="MONITOR VU")
-        self.vu_out.pack(side="right", padx=15, pady=15)
         
-        # Bottom 2 Columns (Transport vs Browser)
-        proj_frame.columnconfigure(0, weight=6)
-        proj_frame.columnconfigure(1, weight=4)
-        proj_frame.rowconfigure(0, weight=1)
+        self.vu_out = AnalogVUMeter(vis_frame, label="MONITOR VOL.")
+        self.vu_out.pack(side="right", padx=(15, 5), pady=15)
+        self.knob_out = RotaryKnob(vis_frame, label="MONITOR GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
+        self.knob_out.pack(side="right", padx=(5, 15), pady=15)
         
-        # Left Transport
-        trans_frame = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
-        trans_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        # Bottom Recorder vs Browser
+        rec_col = CollapsibleFrame(bottom_row, title="[ G R A V A D O R ]")
+        rec_col.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        trans_frame = rec_col.content_frame
         
-        t_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_top.pack(fill="x", pady=5)
-        self.lbl_timer = customtkinter.CTkLabel(t_top, text="00:00.00", font=(FONT_FAMILY, 28, "bold"), text_color=COLOR_RED)
-        self.lbl_timer.pack(side="left", padx=(0, 20))
-        
-        self.btn_rec_a = customtkinter.CTkButton(t_top, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoA"))
-        self.btn_rec_a.pack(side="left", padx=5)
-        self.btn_rec_b = customtkinter.CTkButton(t_top, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoB"))
-        self.btn_rec_b.pack(side="left", padx=5)
-        self.btn_stop = customtkinter.CTkButton(t_top, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=40, state="disabled", command=self.on_stop_click)
-        self.btn_stop.pack(side="left", padx=5)
-        self.chk_magic = customtkinter.CTkCheckBox(t_top, text="✨ Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_magic.pack(side="left", padx=15)
-        
-        t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_mid.pack(fill="x", pady=10)
-        customtkinter.CTkLabel(t_mid, text="Exportar em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        self.opt_format = customtkinter.CTkOptionMenu(t_mid, values=["MP3 (Padrão)", "FLAC (Lossless)", "WAV (Original)"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN)
-        self.opt_format.pack(side="left", padx=10)
-        self.chk_normalize = customtkinter.CTkCheckBox(t_mid, text="Normalizar Vol.", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_normalize.pack(side="left", padx=10)
-        self.chk_denoise = customtkinter.CTkCheckBox(t_mid, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_denoise.pack(side="right")
-        
-        self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, command=self.on_auto_split)
-        self.btn_split.pack(fill="x", pady=5)
-        
-        # Right Browser
-        self.browser = FileBrowser(proj_frame, app=self)
-        self.browser.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        browser_col = CollapsibleFrame(bottom_row, title="[ M E U   D I S C O ]")
+        browser_col.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.browser = FileBrowser(browser_col.content_frame, app=self)
+        self.browser.pack(fill="both", expand=True, padx=15, pady=10)
         self.browser.update_browser()
         
-        self.lbl_status = customtkinter.CTkLabel(self, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
-        self.lbl_status.pack(pady=5)
+        # Recorder UI
+        t_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        t_top.pack(fill="x", padx=15, pady=5)
+        
+        self.chk_magic = customtkinter.CTkSwitch(t_top, text="✨ Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_BOLD)
+        self.chk_magic.pack(pady=(0, 10))
+        
+        r_btns = customtkinter.CTkFrame(t_top, fg_color="transparent")
+        r_btns.pack(fill="x")
+        self.lbl_timer = customtkinter.CTkLabel(r_btns, text="00:00.00", font=(FONT_FAMILY, 28, "bold"), text_color=COLOR_RED)
+        self.lbl_timer.pack(side="left", padx=(0, 15))
+        self.btn_rec_a = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=35, corner_radius=6, command=lambda: self.on_rec_side("LadoA"))
+        self.btn_rec_a.pack(side="left", padx=(0, 5), expand=True, fill="x")
+        self.btn_rec_b = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=35, corner_radius=6, command=lambda: self.on_rec_side("LadoB"))
+        self.btn_rec_b.pack(side="left", padx=5, expand=True, fill="x")
+        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_stop_click)
+        self.btn_stop.pack(side="left", padx=5)
+        
+        t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        t_mid.pack(fill="x", padx=15, pady=10)
+        
+        sw_f = customtkinter.CTkFrame(t_mid, fg_color="transparent")
+        sw_f.pack(side="left", fill="y", padx=(0, 20))
+        self.chk_normalize = customtkinter.CTkSwitch(sw_f, text="Normalizar Volume", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_normalize.pack(anchor="w", pady=4)
+        self.chk_denoise = customtkinter.CTkSwitch(sw_f, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_denoise.pack(anchor="w", pady=4)
+        self.chk_clipping = customtkinter.CTkSwitch(sw_f, text="Remover Clippings", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_clipping.pack(anchor="w", pady=4)
+        
+        f_opts = customtkinter.CTkFrame(t_mid, fg_color="transparent")
+        f_opts.pack(side="left", fill="y", expand=True)
+        
+        opt_grid1 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
+        opt_grid1.pack(fill="x", pady=2)
+        customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, width=80)
+        self.opt_format.pack(side="right")
+        
+        opt_grid2 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
+        opt_grid2.pack(fill="x", pady=2)
+        customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, width=80)
+        self.opt_export.pack(side="right")
+        
+        self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
+        self.btn_split.pack(fill="x", padx=15, pady=(5, 10))
+        
+        self.update_buttons_state()
+
+    def _on_input_gain(self, val): self.engine.input_gain = float(val)
+    def _on_monitor_gain(self, val): self.engine.monitor_volume = float(val)
+    
+    def update_buttons_state(self):
+        import os
+        if os.path.exists(os.path.join(self.project_dir, "LadoA.wav")):
+            self.btn_rec_a.configure(text="● REGRAVAR LADO A", fg_color=COLOR_GREEN)
+        else:
+            self.btn_rec_a.configure(text="● GRAVAR LADO A", fg_color=COLOR_RED)
+            
+        if os.path.exists(os.path.join(self.project_dir, "LadoB.wav")):
+            self.btn_rec_b.configure(text="● REGRAVAR LADO B", fg_color=COLOR_GREEN)
+        else:
+            self.btn_rec_b.configure(text="● GRAVAR LADO B", fg_color=COLOR_RED)
 
     def _init_devices(self):
         devs = self.engine.get_devices()
@@ -940,7 +998,14 @@ class App(customtkinter.CTk):
             self.engine.output_device = self.out_map[out_name]
             self.engine.start_stream()
 
+
     def on_rec_side(self, side_name):
+        meta = self.meta_card.get_metadata()
+        if not meta["artist"] or not meta["album"]:
+            import tkinter.messagebox as messagebox
+            if not messagebox.askyesno("Metadados Vazios", "Você não preencheu Artista e Álbum. Deseja gravar mesmo assim?"):
+                return
+
         wav_path = os.path.join(self.project_dir, f"{side_name}.wav")
         if os.path.exists(wav_path):
             if not messagebox.askyesno("Sobrescrever", f"O arquivo {side_name}.wav já existe.\nDeseja sobrescrever e gravar este lado novamente?"):
