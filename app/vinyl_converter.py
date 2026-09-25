@@ -204,6 +204,41 @@ class AudioEngine:
         subprocess.run(cmd, check=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
 
 # --- GUI WIDGETS ---
+class RotaryKnob(customtkinter.CTkFrame):
+    def __init__(self, master, label="KNOB", command=None, init_val=1.0, max_val=2.0, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.command = command
+        self.max_val = max_val
+        self.val = init_val
+        import math
+        self.math = math
+        self.canvas = customtkinter.CTkCanvas(self, width=50, height=50, bg=COLOR_BG, highlightthickness=0)
+        self.canvas.pack(pady=(0, 2))
+        self.lbl = customtkinter.CTkLabel(self, text=label, font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2)
+        self.lbl.pack()
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<Button-1>", self.on_click)
+        self.draw()
+
+    def on_click(self, event): self.start_y = event.y
+
+    def on_drag(self, event):
+        dy = self.start_y - event.y
+        self.start_y = event.y
+        self.val = max(0.0, min(self.max_val, self.val + dy * 0.02))
+        self.draw()
+        if self.command: self.command(self.val)
+
+    def draw(self):
+        self.canvas.delete("all")
+        cx, cy, r = 25, 25, 18
+        self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill=COLOR_SURFACE2, outline=COLOR_SURFACE, width=2)
+        angle = 135 + (self.val / self.max_val) * 270
+        rad = self.math.radians(angle)
+        lx = cx + (r-4) * self.math.cos(rad)
+        ly = cy + (r-4) * self.math.sin(rad)
+        self.canvas.create_line(cx, cy, lx, ly, fill=COLOR_ACCENT, width=3)
+
 class RetroWaveform(tk.Canvas):
     def __init__(self, master, **kwargs):
         super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_TEXT3, width=400, height=120, **kwargs)
