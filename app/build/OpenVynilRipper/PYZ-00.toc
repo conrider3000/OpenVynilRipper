@@ -1,5 +1,5 @@
-('C:\\Users\\falac\\Documents\\Aplicativos em Desenvolvimento\\Ion Vynil '
- 'Converter\\app\\build\\OpenVynilRipper\\PYZ-00.pyz',
+('C:\\Users\\falac\\Documents\\Aplicativos em Desenvolvimento\\Open Vynil '
+ 'Ripper\\app\\build\\OpenVynilRipper\\PYZ-00.pyz',
  [('PIL',
    'C:\\Users\\falac\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PIL\\__init__.py',
    'PYMODULE'),

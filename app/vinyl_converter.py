@@ -301,13 +301,26 @@ class VirtualTurntable(customtkinter.CTkFrame):
         self.cam_window.geometry("500x550")
         self.cam_window.attributes("-topmost", True)
         
-        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
+        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="Ligando Câmera... Aguarde.", font=FONT_TITLE, text_color=COLOR_TEXT)
         lbl_cam.pack(fill="both", expand=True)
-        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR RÓTULO", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
+        
+        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR RÓTULO", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000", state="disabled")
         btn_take.pack(pady=(10, 5))
         
-        cap = cv2.VideoCapture(0)
+        cap = [None]
         self.taking_photo = False
+        
+        def init_camera():
+            c = cv2.VideoCapture(0)
+            if self.cam_window.winfo_exists():
+                cap[0] = c
+                lbl_cam.configure(text="")
+                btn_take.configure(state="normal")
+                update_cam()
+            else:
+                c.release()
+                
+        threading.Thread(target=init_camera, daemon=True).start()
         
         def load_from_pc():
             from tkinter import filedialog
@@ -317,7 +330,6 @@ class VirtualTurntable(customtkinter.CTkFrame):
                 save_path = os.path.join(self.app.project_dir, "label.jpg")
                 try:
                     img = Image.open(path).convert("RGB")
-                    # Crop to square
                     w, h = img.size
                     min_dim = min(h, w)
                     sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
@@ -327,7 +339,7 @@ class VirtualTurntable(customtkinter.CTkFrame):
                     shutil.copy(path, save_path)
                 
                 self.label_path = save_path
-                cap.release()
+                if cap[0]: cap[0].release()
                 if self.cam_window.winfo_exists():
                     self.cam_window.destroy()
                 self.draw_vinyl()
@@ -337,9 +349,10 @@ class VirtualTurntable(customtkinter.CTkFrame):
         
         def update_cam():
             if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
-                cap.release()
+                if cap[0]: cap[0].release()
                 return
-            ret, frame = cap.read()
+            if not cap[0]: return
+            ret, frame = cap[0].read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, _ = frame.shape
@@ -351,7 +364,7 @@ class VirtualTurntable(customtkinter.CTkFrame):
                 if self.taking_photo:
                     save_path = os.path.join(self.app.project_dir, "label.jpg")
                     img.save(save_path, quality=90)
-                    cap.release()
+                    cap[0].release()
                     self.cam_window.destroy()
                     self.label_path = save_path
                     self.draw_vinyl()
@@ -362,7 +375,6 @@ class VirtualTurntable(customtkinter.CTkFrame):
             self.after(30, update_cam)
             
         btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
-        update_cam()
         
     def set_playing(self, playing: bool):
         self.is_playing = playing
@@ -415,26 +427,22 @@ class VirtualTurntable(customtkinter.CTkFrame):
         self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=COLOR_BG, outline="")
 
 class CoverDisplay(customtkinter.CTkFrame):
-    def __init__(self, master, app=None, **kwargs):
+    def __init__(self, master, app=None, title="📸 ADICIONAR CAPA", **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.app = app
-        self.front_path = None
-        self.back_path = None
-        self.showing_front = True
+        self.cover_path = None
+        self.title_text = title
         
-        self.lbl_img = customtkinter.CTkLabel(self, text="📸 ADICIONAR CAPA", width=400, height=400, fg_color=COLOR_BG, font=FONT_TITLE, text_color=COLOR_SURFACE2)
+        self.lbl_img = customtkinter.CTkLabel(self, text=title, fg_color=COLOR_BG, font=FONT_TITLE, text_color=COLOR_SURFACE2)
         self.lbl_img.pack(fill="both", expand=True)
         self.lbl_img.bind("<Button-1>", self.open_camera)
         
         ctrl_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         ctrl_frame.pack(fill="x", pady=(5, 0))
         
-        self.btn_flip = customtkinter.CTkButton(ctrl_frame, text="🔄 Virar Capa", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.flip_cover, state="disabled")
-        self.btn_flip.pack(side="left", padx=5, expand=True)
-        
-        self.btn_add_cover = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Capa", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
-        self.btn_add_cover.pack(side="right", padx=5, expand=True)
-        
+        self.btn_add_cover = customtkinter.CTkButton(ctrl_frame, text="📸 Alterar Imagem", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.open_camera)
+        self.btn_add_cover.pack(fill="x", expand=True)
+
     def open_camera(self, event=None):
         import cv2, threading
         from PIL import Image, ImageTk
@@ -446,14 +454,26 @@ class CoverDisplay(customtkinter.CTkFrame):
         self.cam_window.geometry("500x550")
         self.cam_window.attributes("-topmost", True)
         
-        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="")
+        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="Ligando Câmera... Aguarde.", font=FONT_TITLE, text_color=COLOR_TEXT)
         lbl_cam.pack(fill="both", expand=True)
         
-        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR CAPA", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000")
+        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR CAPA", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000", state="disabled")
         btn_take.pack(pady=(10, 5))
         
-        cap = cv2.VideoCapture(0)
+        cap = [None]
         self.taking_photo = False
+        
+        def init_camera():
+            c = cv2.VideoCapture(0)
+            if self.cam_window.winfo_exists():
+                cap[0] = c
+                lbl_cam.configure(text="")
+                btn_take.configure(state="normal")
+                update_cam()
+            else:
+                c.release()
+                
+        threading.Thread(target=init_camera, daemon=True).start()
         
         def load_from_pc():
             from tkinter import filedialog
@@ -463,7 +483,6 @@ class CoverDisplay(customtkinter.CTkFrame):
                 save_path = os.path.join(self.app.project_dir, "cover.jpg")
                 try:
                     img = Image.open(path).convert("RGB")
-                    # Crop to square
                     w, h = img.size
                     min_dim = min(h, w)
                     sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
@@ -472,22 +491,22 @@ class CoverDisplay(customtkinter.CTkFrame):
                 except:
                     shutil.copy(path, save_path)
                 
-                cap.release()
+                if cap[0]: cap[0].release()
                 if self.cam_window.winfo_exists():
                     self.cam_window.destroy()
-                self.load_covers(save_path, self.back_path)
+                self.load_cover(save_path)
                 
         btn_pc = customtkinter.CTkButton(self.cam_window, text="📁 CARREGAR DO PC", height=40, font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=load_from_pc)
         btn_pc.pack(pady=(0, 10))
         
         def update_cam():
             if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
-                cap.release()
+                if cap[0]: cap[0].release()
                 return
-            ret, frame = cap.read()
+            if not cap[0]: return
+            ret, frame = cap[0].read()
             if ret:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                # Crop to square
                 h, w, _ = frame.shape
                 min_dim = min(h, w)
                 sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
@@ -497,9 +516,9 @@ class CoverDisplay(customtkinter.CTkFrame):
                 if self.taking_photo:
                     save_path = os.path.join(self.app.project_dir, "cover.jpg")
                     img.save(save_path, quality=90)
-                    cap.release()
+                    cap[0].release()
                     self.cam_window.destroy()
-                    self.load_covers(save_path, self.back_path)
+                    self.load_cover(save_path)
                     return
                 
                 ctk_img = customtkinter.CTkImage(light_image=img, size=(400, 400))
@@ -507,30 +526,20 @@ class CoverDisplay(customtkinter.CTkFrame):
             self.after(30, update_cam)
             
         btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
-        update_cam()
         
-    def load_covers(self, front_path, back_path):
-        self.front_path = front_path
-        self.back_path = back_path
-        self.showing_front = True
-        self.btn_flip.configure(state="normal" if back_path and os.path.exists(back_path) else "disabled")
-        self._update_img()
+    def load_cover(self, path):
+        self.cover_path = path
+        if not path or not os.path.exists(path):
+            self.lbl_img.configure(image="", text=self.title_text)
+            return
+        from PIL import Image, ImageTk
+        img = Image.open(path).convert("RGB")
+        img = img.resize((400, 400))
+        self.tk_img = customtkinter.CTkImage(light_image=img, size=(400, 400))
+        self.lbl_img.configure(image=self.tk_img, text="")
         
     def flip_cover(self):
-        self.showing_front = not self.showing_front
-        self._update_img()
-        
-    def _update_img(self):
-        from PIL import Image
-        path = self.front_path if self.showing_front else self.back_path
-        if path and os.path.exists(path):
-            img = Image.open(path)
-            # Make sure it's big!
-            w = self.winfo_width() if self.winfo_width() > 10 else 400
-            ctk_img = customtkinter.CTkImage(light_image=img, size=(w, w))
-            self.lbl_img.configure(image=ctk_img, text="")
-        else:
-            self.lbl_img.configure(image="", text="📸 ADICIONAR CAPA")
+        pass
 
 
 CARTRIDGES = [
@@ -592,20 +601,29 @@ class MetadataCard(customtkinter.CTkFrame):
     def __init__(self, master, on_album_found=None, **kwargs):
         super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2, **kwargs)
         self.on_album_found = on_album_found
+        self.is_collapsed = False
         
         top_frame = customtkinter.CTkFrame(self, fg_color="transparent")
         top_frame.pack(fill="x", pady=(10, 5), padx=15)
         
-        lbl_title = customtkinter.CTkLabel(top_frame, text="[ INFORMAÇÕES DO DISCO ]", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        lbl_title = customtkinter.CTkLabel(top_frame, text="[ ADICIONAR INFORMAÇÕES DO DISCO ]", font=FONT_BOLD, text_color=COLOR_TEXT2)
         lbl_title.pack(side="left")
+        
+        btn_toggle = customtkinter.CTkButton(top_frame, text="[-]", width=30, height=24, fg_color="transparent", font=FONT_BOLD, command=self.toggle)
+        btn_toggle.pack(side="right", padx=(10,0))
         
         btn_search = customtkinter.CTkButton(top_frame, text="🔍 Buscar Álbum", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.search_album)
         btn_search.pack(side="right")
         
+        self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.content_frame.pack(fill="both", expand=True)
+        
+        self.btn_toggle = btn_toggle
+        
         self.entries = {}
         fields = [("Artista / Banda", "artist"), ("Álbum", "album"), ("Ano", "year"), ("Agulha/Cápsula", "cartridge"), ("Vinil (ex: 180g)", "vinyl_spec")]
         for label_text, key in fields:
-            f = customtkinter.CTkFrame(self, fg_color="transparent")
+            f = customtkinter.CTkFrame(self.content_frame, fg_color="transparent")
             f.pack(fill="x", padx=15, pady=1)
             customtkinter.CTkLabel(f, text=label_text, font=FONT_MAIN, text_color=COLOR_TEXT, width=150, anchor="e").pack(side="left", padx=(0, 10))
             
@@ -617,7 +635,17 @@ class MetadataCard(customtkinter.CTkFrame):
                 ent = customtkinter.CTkEntry(f, fg_color=COLOR_BG, border_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN)
             ent.pack(side="left", fill="x", expand=True)
             self.entries[key] = ent
-            
+
+    def toggle(self):
+        if self.is_collapsed:
+            self.content_frame.pack(fill="both", expand=True)
+            self.btn_toggle.configure(text="[-]")
+            self.is_collapsed = False
+        else:
+            self.content_frame.pack_forget()
+            self.btn_toggle.configure(text="[+]")
+            self.is_collapsed = True
+
     def _filter_cartridges(self, event):
         if event.keysym in ("Down", "Up", "Left", "Right", "Return", "Escape", "Tab"):
             return
@@ -706,20 +734,64 @@ class App(customtkinter.CTk):
         self._init_devices()
         self._ui_update_loop()
         
+
+class FileBrowser(customtkinter.CTkFrame):
+    def __init__(self, master, app, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+        self.app = app
+        
+        top = customtkinter.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", pady=(0, 5))
+        
+        self.lbl_path = customtkinter.CTkLabel(top, text="...", font=FONT_MAIN, text_color=COLOR_TEXT)
+        self.lbl_path.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        
+        def open_explorer():
+            import os
+            os.startfile(self.app.project_dir)
+            
+        customtkinter.CTkButton(top, text="Abrir no Explorer", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
+        customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.app._choose_folder).pack(side="right")
+        
+        self.scroll = customtkinter.CTkScrollableFrame(self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2)
+        self.scroll.pack(fill="both", expand=True, pady=5)
+        
+        customtkinter.CTkButton(self, text="+ Nova Pasta", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.new_folder).pack(fill="x")
+        
+    def update_browser(self):
+        self.lbl_path.configure(text=os.path.basename(self.app.project_dir) or self.app.project_dir)
+        for w in self.scroll.winfo_children(): w.destroy()
+        
+        import os
+        parent = os.path.dirname(self.app.project_dir)
+        try:
+            for d in os.listdir(parent):
+                full = os.path.join(parent, d)
+                if os.path.isdir(full):
+                    btn = customtkinter.CTkButton(self.scroll, text=f"📁 {d}", fg_color="transparent", text_color=COLOR_TEXT, anchor="w", command=lambda p=full: self.app.set_project_dir(p))
+                    btn.pack(fill="x", pady=1)
+        except: pass
+
+    def new_folder(self):
+        import tkinter.simpledialog
+        name = tkinter.simpledialog.askstring("Nova Pasta", "Nome do novo disco:")
+        if name:
+            import os
+            new_path = os.path.join(os.path.dirname(self.app.project_dir), name)
+            os.makedirs(new_path, exist_ok=True)
+            self.app.set_project_dir(new_path)
+
     def _build_ui(self):
-        # HEADER
         header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=50, corner_radius=0)
         header.pack(fill="x", pady=(0, 10))
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
         
-        # LOWER SECTION (Packed first with side="bottom" to prevent overflow)
         proj_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
         proj_frame.pack(fill="x", padx=10, pady=5, side="bottom")
         
         vis_frame = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
         vis_frame.pack(fill="x", padx=10, pady=(5, 0), side="bottom")
         
-        # MAIN CONTAINER (Fills remaining space)
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
         
@@ -729,20 +801,37 @@ class App(customtkinter.CTk):
         top_row.columnconfigure(1, weight=1, uniform="a")
         top_row.rowconfigure(0, weight=1)
         
+        # Audio Connections (Collapsible)
         dev_frame = customtkinter.CTkFrame(top_row, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2)
         dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
         dev_top = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
         dev_top.pack(fill="x", pady=(10, 5), padx=15)
         customtkinter.CTkLabel(dev_top, text="[ CONEXÕES DE ÁUDIO ]", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        customtkinter.CTkButton(dev_top, text="🔄 Atualizar USB", width=80, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self._init_devices).pack(side="right")
         
-        self.opt_in = customtkinter.CTkOptionMenu(dev_frame, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        def toggle_dev():
+            if hasattr(self, 'dev_collapsed') and self.dev_collapsed:
+                dev_content.pack(fill="both", expand=True)
+                btn_dev_toggle.configure(text="[-]")
+                self.dev_collapsed = False
+            else:
+                dev_content.pack_forget()
+                btn_dev_toggle.configure(text="[+]")
+                self.dev_collapsed = True
+                
+        btn_dev_toggle = customtkinter.CTkButton(dev_top, text="[-]", width=30, height=24, fg_color="transparent", font=FONT_BOLD, command=toggle_dev)
+        btn_dev_toggle.pack(side="right", padx=(10, 0))
+        customtkinter.CTkButton(dev_top, text="🔄 Atualizar", width=80, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self._init_devices).pack(side="right")
+        
+        dev_content = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
+        dev_content.pack(fill="both", expand=True)
+        self.dev_collapsed = False
+        
+        self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_in.pack(fill="x", padx=15, pady=5)
-        self.opt_out = customtkinter.CTkOptionMenu(dev_frame, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_out.pack(fill="x", padx=15, pady=5)
-        
-        vol_frame = customtkinter.CTkFrame(dev_frame, fg_color="transparent")
+        vol_frame = customtkinter.CTkFrame(dev_content, fg_color="transparent")
         vol_frame.pack(fill="x", padx=15, pady=15)
         customtkinter.CTkLabel(vol_frame, text="VOL. MONITOR:", font=FONT_MAIN, text_color=COLOR_TEXT).pack(side="left")
         self.vol_slider = customtkinter.CTkSlider(vol_frame, from_=0, to=1.5, button_color=COLOR_ACCENT, progress_color=COLOR_ACCENT, command=self._on_volume_change)
@@ -752,18 +841,24 @@ class App(customtkinter.CTk):
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
         self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         
+        # 3 Columns Layout (Mid Row)
         mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
         mid_row.pack(fill="both", expand=True, pady=(10,0))
-        mid_row.columnconfigure(0, weight=1, uniform="a")
-        mid_row.columnconfigure(1, weight=1, uniform="a")
+        mid_row.columnconfigure(0, weight=1, uniform="b")
+        mid_row.columnconfigure(1, weight=1, uniform="b")
+        mid_row.columnconfigure(2, weight=1, uniform="b")
         mid_row.rowconfigure(0, weight=1)
         
         self.turntable = VirtualTurntable(mid_row, app=self)
         self.turntable.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
-        self.cover_display = CoverDisplay(mid_row, app=self)
-        self.cover_display.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.cover_front = CoverDisplay(mid_row, app=self, title="Capa Frontal")
+        self.cover_front.grid(row=0, column=1, sticky="nsew", padx=(5, 5))
         
+        self.cover_back = CoverDisplay(mid_row, app=self, title="Contracapa")
+        self.cover_back.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+        
+        # Bottom Visuals
         self.vu_in = AnalogVUMeter(vis_frame, label="INPUT VU")
         self.vu_in.pack(side="left", padx=15, pady=15)
         self.waveform = RetroWaveform(vis_frame)
@@ -771,47 +866,46 @@ class App(customtkinter.CTk):
         self.vu_out = AnalogVUMeter(vis_frame, label="MONITOR VU")
         self.vu_out.pack(side="right", padx=15, pady=15)
         
-        p_top = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
-        p_top.pack(fill="x", padx=15, pady=10)
-        customtkinter.CTkLabel(p_top, text="PASTA DO DISCO:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        self.lbl_folder = customtkinter.CTkLabel(p_top, text=self.project_dir, font=FONT_MAIN, text_color=COLOR_TEXT)
-        self.lbl_folder.pack(side="left", padx=15)
-        customtkinter.CTkButton(p_top, text="ALTERAR PASTA", font=FONT_BOLD, fg_color=COLOR_SURFACE2, width=120, command=self._choose_folder).pack(side="right")
+        # Bottom 2 Columns (Transport vs Browser)
+        proj_frame.columnconfigure(0, weight=6)
+        proj_frame.columnconfigure(1, weight=4)
+        proj_frame.rowconfigure(0, weight=1)
         
-        p_mid = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
-        p_mid.pack(fill="x", padx=15, pady=5)
+        # Left Transport
+        trans_frame = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
+        trans_frame.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=10)
         
-        self.lbl_timer = customtkinter.CTkLabel(p_mid, text="00:00.00", font=(FONT_FAMILY, 28, "bold"), text_color=COLOR_RED)
+        t_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        t_top.pack(fill="x", pady=5)
+        self.lbl_timer = customtkinter.CTkLabel(t_top, text="00:00.00", font=(FONT_FAMILY, 28, "bold"), text_color=COLOR_RED)
         self.lbl_timer.pack(side="left", padx=(0, 20))
         
-        self.btn_rec_a = customtkinter.CTkButton(p_mid, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoA"))
+        self.btn_rec_a = customtkinter.CTkButton(t_top, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoA"))
         self.btn_rec_a.pack(side="left", padx=5)
-        self.btn_rec_b = customtkinter.CTkButton(p_mid, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoB"))
+        self.btn_rec_b = customtkinter.CTkButton(t_top, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=40, command=lambda: self.on_rec_side("LadoB"))
         self.btn_rec_b.pack(side="left", padx=5)
-        self.btn_stop = customtkinter.CTkButton(p_mid, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=40, state="disabled", command=self.on_stop_click)
+        self.btn_stop = customtkinter.CTkButton(t_top, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=40, state="disabled", command=self.on_stop_click)
         self.btn_stop.pack(side="left", padx=5)
-        
-        self.chk_magic = customtkinter.CTkCheckBox(p_mid, text="🪄 Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_magic = customtkinter.CTkCheckBox(t_top, text="✨ Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_MAIN)
         self.chk_magic.pack(side="left", padx=15)
         
-        p_bot = customtkinter.CTkFrame(proj_frame, fg_color="transparent")
-        p_bot.pack(fill="x", padx=15, pady=10)
-        
-        opt_frame = customtkinter.CTkFrame(p_bot, fg_color="transparent")
-        opt_frame.pack(fill="x", pady=(0, 10))
-        
-        customtkinter.CTkLabel(opt_frame, text="Exportar em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        self.opt_format = customtkinter.CTkOptionMenu(opt_frame, values=["MP3 (Padrão)", "FLAC (Lossless)", "WAV (Original)"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN)
+        t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        t_mid.pack(fill="x", pady=10)
+        customtkinter.CTkLabel(t_mid, text="Exportar em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        self.opt_format = customtkinter.CTkOptionMenu(t_mid, values=["MP3 (Padrão)", "FLAC (Lossless)", "WAV (Original)"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN)
         self.opt_format.pack(side="left", padx=10)
-        
-        self.chk_normalize = customtkinter.CTkCheckBox(opt_frame, text="Normalizar Vol.", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_normalize = customtkinter.CTkCheckBox(t_mid, text="Normalizar Vol.", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
         self.chk_normalize.pack(side="left", padx=10)
-        
-        self.chk_denoise = customtkinter.CTkCheckBox(opt_frame, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
+        self.chk_denoise = customtkinter.CTkCheckBox(t_mid, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
         self.chk_denoise.pack(side="right")
         
-        self.btn_split = customtkinter.CTkButton(p_bot, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, command=self.on_auto_split)
-        self.btn_split.pack(fill="x")
+        self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, command=self.on_auto_split)
+        self.btn_split.pack(fill="x", pady=5)
+        
+        # Right Browser
+        self.browser = FileBrowser(proj_frame, app=self)
+        self.browser.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=10)
+        self.browser.update_browser()
         
         self.lbl_status = customtkinter.CTkLabel(self, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
         self.lbl_status.pack(pady=5)
@@ -828,6 +922,11 @@ class App(customtkinter.CTk):
             self.opt_out.set(next((n for n in self.out_map.keys() if "SYNAPTICS" in n.upper() or "REALTEK" in n.upper()), list(self.out_map.keys())[0]))
         self._start_stream()
         
+
+    def set_project_dir(self, new_dir):
+        self.project_dir = new_dir
+        self.browser.update_browser()
+
     def _choose_folder(self):
         folder = filedialog.askdirectory(initialdir=self.project_dir, title="Escolha a pasta do disco")
         if folder:
@@ -894,7 +993,7 @@ class App(customtkinter.CTk):
                         back_path = os.path.join(self.project_dir, "back.jpg")
                         urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), back_path)
                         
-                self.after(0, lambda: self.cover_display.load_covers(front_path, back_path))
+                self.after(0, lambda: self.cover_front.load_cover(front_path, back_path))
                 self.after(0, lambda: self.lbl_status.configure(text="SISTEMA PRONTO", text_color=COLOR_GREEN))
             except Exception as e:
                 print("Cover fetch error:", e)
