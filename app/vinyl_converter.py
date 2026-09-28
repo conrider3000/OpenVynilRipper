@@ -45,6 +45,7 @@ class AudioEngine:
         self.input_gain = 1.0
         self.silence_frames = 0
         self.trigger_auto_stop = False
+        self.writer_lock = __import__('threading').Lock()
         
         self.waveform_buffer = collections.deque(maxlen=400)
         self.elapsed_seconds = 0.0
@@ -108,9 +109,14 @@ class AudioEngine:
             self.start_recording(self.magic_path)
             if hasattr(self, 'on_magic_trigger'): self.on_magic_trigger()
             
-        if self.recording and self.writer is not None:
-            self.writer.write(indata)
-            self.elapsed_seconds += frames / self.sample_rate
+        if self.recording:
+            with self.writer_lock:
+                if self.writer is not None:
+                    try:
+                        self.writer.write(indata)
+                        self.elapsed_seconds += frames / self.sample_rate
+                    except Exception as e:
+                        print('Audio write error:', e)
             if hasattr(self, 'on_time_update') and self.on_time_update: self.on_time_update(self.elapsed_seconds)
             
             if amplitude_chunk < 0.02:
@@ -138,16 +144,21 @@ class AudioEngine:
     def start_recording(self, output_path: str):
         self.output_path = output_path
         self.elapsed_seconds = 0.0
-        self.writer = sf.SoundFile(
-            output_path, mode='w', samplerate=self.sample_rate, channels=self.channels, format='WAV', subtype='PCM_16'
-        )
+        with self.writer_lock:
+            self.writer = sf.SoundFile(
+                output_path, mode='w', samplerate=self.sample_rate, channels=self.channels, format='WAV', subtype='PCM_16'
+            )
         self.recording = True
 
     def stop_recording(self) -> str:
         self.recording = False
-        if self.writer:
-            self.writer.close()
-            self.writer = None
+        with self.writer_lock:
+            if self.writer:
+                try:
+                    self.writer.close()
+                except:
+                    pass
+                self.writer = None
         return self.output_path
 
     def pause(self): self.paused = True
