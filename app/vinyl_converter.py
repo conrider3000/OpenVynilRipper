@@ -747,7 +747,7 @@ class MetadataCard(customtkinter.CTkFrame):
             customtkinter.CTkLabel(f, text=label_text, font=FONT_MAIN, text_color=COLOR_TEXT, width=150, anchor="e").pack(side="left", padx=(0, 10))
             
             if key == "cartridge":
-                ent = customtkinter.CTkComboBox(f, values=CARTRIDGES, fg_color=COLOR_BG, border_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=lambda v: None)
+                ent = customtkinter.CTkComboBox(f, values=CARTRIDGES, fg_color=COLOR_BG, border_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, dropdown_font=FONT_MAIN, command=lambda v: None)
                 ent.set("")
                 ent.bind("<KeyRelease>", self._filter_cartridges)
             else:
@@ -954,9 +954,9 @@ class App(customtkinter.CTk):
         dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         dev_content = dev_frame.content_frame
         
-        self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_in.pack(fill="x", padx=15, pady=5)
-        self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_out.pack(fill="x", padx=15, pady=5)
         
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
@@ -1031,7 +1031,9 @@ class App(customtkinter.CTk):
         self.btn_rec_a.pack(side="left", padx=(0, 5), expand=True, fill="x")
         self.btn_rec_b = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=35, corner_radius=6, command=lambda: self.on_rec_side("LadoB"))
         self.btn_rec_b.pack(side="left", padx=5, expand=True, fill="x")
-        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_stop_click)
+        self.btn_pause = customtkinter.CTkButton(r_btns, text="⏸ PAUSE", width=80, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_pause_click)
+        self.btn_pause.pack(side="left", padx=5)
+        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", width=80, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_stop_click)
         self.btn_stop.pack(side="left", padx=5)
         
         t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
@@ -1052,13 +1054,13 @@ class App(customtkinter.CTk):
         opt_grid1 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
         opt_grid1.pack(fill="x", pady=2)
         customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, width=80)
+        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
         self.opt_format.pack(side="right")
         
         opt_grid2 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
         opt_grid2.pack(fill="x", pady=2)
         customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
-        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, width=80)
+        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
         self.opt_export.pack(side="right")
         
         self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
@@ -1139,9 +1141,22 @@ class App(customtkinter.CTk):
         self.btn_rec_a.configure(state="disabled")
         self.btn_rec_b.configure(state="disabled")
         self.btn_split.configure(state="disabled")
+        self.btn_pause.configure(state="normal", fg_color=COLOR_ACCENT, text="⏸ PAUSE")
         self.btn_stop.configure(state="normal", fg_color=COLOR_ACCENT)
         self.lbl_status.configure(text=f"GRAVANDO {side_name.upper()}...", text_color=COLOR_RED)
         
+    def on_pause_click(self):
+        if self.engine.paused:
+            self.engine.resume()
+            self.btn_pause.configure(text="⏸ PAUSE", fg_color=COLOR_ACCENT)
+            self.lbl_status.configure(text="GRAVANDO...", text_color=COLOR_RED)
+            self.turntable.set_playing(True)
+        else:
+            self.engine.pause()
+            self.btn_pause.configure(text="▶ RESUME", fg_color=COLOR_YELLOW)
+            self.lbl_status.configure(text="GRAVAÇÃO PAUSADA.", text_color=COLOR_YELLOW)
+            self.turntable.set_playing(False)
+
     def on_stop_click(self):
         self.engine.stop_recording()
         self.engine.magic_wait = False
@@ -1149,6 +1164,7 @@ class App(customtkinter.CTk):
         self.btn_rec_a.configure(state="normal")
         self.btn_rec_b.configure(state="normal")
         self.btn_split.configure(state="normal")
+        self.btn_pause.configure(state="disabled", fg_color=COLOR_SURFACE2, text="⏸ PAUSE")
         self.btn_stop.configure(state="disabled", fg_color=COLOR_SURFACE2)
         self.lbl_status.configure(text="GRAVAÇÃO FINALIZADA. PRONTO.", text_color=COLOR_GREEN)
         
@@ -1278,6 +1294,12 @@ class App(customtkinter.CTk):
             self.after(0, lambda: self.btn_split.configure(state="normal"))
 
     def _ui_update_loop(self):
+        if getattr(self.engine, 'trigger_auto_stop', False):
+            self.engine.trigger_auto_stop = False
+            self.on_stop_click()
+            import tkinter.messagebox as messagebox
+            messagebox.showinfo("Auto Stop", "A gravação parou automaticamente após 30 segundos de silêncio.")
+            
         if hasattr(self.engine, 'latest_amp'):
             self.waveform.add_sample(self.engine.latest_amp)
         if hasattr(self.engine, 'latest_levels'):
