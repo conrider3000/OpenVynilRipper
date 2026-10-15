@@ -517,7 +517,8 @@ class AnalogVUMeter(tk.Canvas):
 
 class VirtualTurntable(customtkinter.CTkFrame):
     def __init__(self, master, app=None, **kwargs):
-        super().__init__(master, fg_color="transparent", **kwargs)
+        super().__init__(master, fg_color="transparent", width=150, height=150, **kwargs)
+        self.pack_propagate(False)
         self.app = app
         self.angle = 0
         self.is_playing = False
@@ -527,16 +528,16 @@ class VirtualTurntable(customtkinter.CTkFrame):
         
         self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.bind("<Configure>", lambda e: self.draw_vinyl())
+        self.canvas.bind("<Configure>", lambda e: self.draw_vinyl())
         self.canvas.bind("<Button-1>", self.open_camera)
         self.canvas.bind("<Motion>", self.on_motion)
         self.canvas.bind("<Leave>", self.on_leave)
         
     def on_motion(self, event):
-        w = self.winfo_width()
-        h = self.winfo_height()
-        cx, cy = w/2, h/2
-        r = min(w, h)/2 - 10
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        cx, cy = w / 2, h / 2
+        r = min(w, h) / 2 - 10
         label_r = r * 0.35
         dist = ((event.x - cx)**2 + (event.y - cy)**2)**0.5
         hover = dist <= label_r
@@ -649,12 +650,13 @@ class VirtualTurntable(customtkinter.CTkFrame):
         
     def draw_vinyl(self):
         self.canvas.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
         if w < 10 or h < 10: return
         
         cx, cy = w // 2, h // 2
-        r = min(w, h) // 2 - 10
+        r = (min(w, h) // 2) - 10
+        if r < 10: return
         
         # outer black
         self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill="#111", outline="#333", width=2)
@@ -696,66 +698,83 @@ class VirtualTurntable(customtkinter.CTkFrame):
 
 class CoverDisplay(customtkinter.CTkFrame):
     def __init__(self, master, app=None, title="CAPA", **kwargs):
-        super().__init__(master, fg_color="transparent", **kwargs)
+        super().__init__(master, fg_color="transparent", width=150, height=150, **kwargs)
+        self.pack_propagate(False)
         self.app = app
         self.title_text = title
         self.cover_path = None
         self.original_img = None
-        self.img_normal = None
-        self.img_hover = None
         self.hover_active = False
-        self._resize_timer = None
+        self._cached_dim = 0
+        self._cached_normal = None
+        self._cached_hover = None
         
-        self.lbl_img = customtkinter.CTkLabel(self, text=title, fg_color=COLOR_BG, font=FONT_TITLE, text_color=COLOR_SURFACE2)
-        self.lbl_img.pack(fill="both", expand=True, padx=2, pady=2)
-        self.lbl_img.bind("<Button-1>", self.open_camera)
-        self.lbl_img.bind("<Enter>", self.on_hover)
-        self.lbl_img.bind("<Leave>", self.on_leave)
-        self.lbl_img.bind("<Configure>", self.on_resize)
+        self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=2, pady=2)
+        self.canvas.bind("<Button-1>", self.open_camera)
+        self.canvas.bind("<Enter>", self.on_hover)
+        self.canvas.bind("<Leave>", self.on_leave)
+        self.canvas.bind("<Configure>", lambda e: self.redraw())
 
     def update_theme(self):
-        self.lbl_img.configure(fg_color=COLOR_BG, text_color=COLOR_SURFACE2)
-
-    def on_resize(self, event):
-        if not self.original_img: return
-        if self._resize_timer:
-            self.after_cancel(self._resize_timer)
-        self._resize_timer = self.after(200, self._apply_resize)
-
-    def _apply_resize(self):
-        w, h = self.lbl_img.winfo_width(), self.lbl_img.winfo_height()
-        if w < 10 or h < 10 or not self.original_img: return
-        dim = min(w, h)
-        
-        from PIL import Image, ImageEnhance, ImageDraw
-        img = self.original_img.resize((dim, dim), Image.Resampling.LANCZOS)
-        self.img_normal = customtkinter.CTkImage(light_image=img, size=(dim, dim))
-        
-        h_img = img.copy()
-        h_img = ImageEnhance.Brightness(h_img).enhance(0.4)
-        draw = ImageDraw.Draw(h_img)
-        text = f"TROCAR {self.title_text.upper()}"
-        draw.text((dim//2, dim//2), text, fill=(255, 255, 255), anchor="mm")
-        self.img_hover = customtkinter.CTkImage(light_image=h_img, size=(dim, dim))
-        
-        if self.hover_active:
-            self.lbl_img.configure(image=self.img_hover, text="")
-        else:
-            self.lbl_img.configure(image=self.img_normal, text="")
+        self.canvas.configure(bg=COLOR_BG)
+        self.redraw()
 
     def on_hover(self, event):
         self.hover_active = True
-        if getattr(self, 'img_hover', None):
-            self.lbl_img.configure(image=self.img_hover)
+        self.redraw()
             
     def on_leave(self, event):
         self.hover_active = False
-        if getattr(self, 'img_normal', None):
-            self.lbl_img.configure(image=self.img_normal)
+        self.redraw()
+
+    def redraw(self):
+        self.canvas.delete("all")
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        if w < 10 or h < 10: return
+        
+        dim = max(10, min(w, h) - 10)
+        cx, cy = w // 2, h // 2
+        
+        if not self.original_img:
+            self.canvas.create_rectangle(cx - dim//2, cy - dim//2, cx + dim//2, cy + dim//2, fill=COLOR_SURFACE, outline=COLOR_BORDER, width=2)
+            self.canvas.create_text(cx, cy, text=self.title_text, fill=COLOR_TEXT2, font=FONT_BOLD)
+            return
+            
+        from PIL import Image, ImageEnhance, ImageDraw, ImageTk
+        
+        if dim != getattr(self, '_cached_dim', 0) or getattr(self, '_cached_normal', None) is None:
+            self._cached_dim = dim
+            resized = self.original_img.resize((dim, dim), Image.Resampling.LANCZOS)
+            self._cached_normal = ImageTk.PhotoImage(resized)
+            
+            h_img = ImageEnhance.Brightness(resized.copy()).enhance(0.4)
+            draw = ImageDraw.Draw(h_img)
+            draw.text((dim // 2, dim // 2), f"TROCAR {self.title_text.upper()}", fill=(255, 255, 255), anchor="mm")
+            self._cached_hover = ImageTk.PhotoImage(h_img)
+            
+        img_to_show = self._cached_hover if self.hover_active else self._cached_normal
+        self.canvas.create_image(cx, cy, image=img_to_show)
+        self.canvas.create_rectangle(cx - dim//2, cy - dim//2, cx + dim//2, cy + dim//2, outline=COLOR_BORDER, width=2)
+
+    def load_cover(self, path):
+        self.cover_path = path
+        if not path or not os.path.exists(path):
+            self.original_img = None
+            self._cached_normal = None
+            self._cached_hover = None
+            self.redraw()
+            return
+        from PIL import Image
+        try:
+            self.original_img = Image.open(path).convert("RGB")
+            self._cached_dim = 0
+            self.redraw()
+        except Exception as e:
+            print("Error loading cover image:", e)
 
     def open_camera(self, event=None):
-
-
         import cv2, threading
         from PIL import Image, ImageTk
         if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
@@ -792,7 +811,7 @@ class CoverDisplay(customtkinter.CTkFrame):
             import shutil
             path = filedialog.askopenfilename(title="Escolha a imagem da capa", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
             if path:
-                save_path = os.path.join(self.app.project_dir, "cover.jpg")
+                save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
                 try:
                     img = Image.open(path).convert("RGB")
                     w, h = img.size
@@ -826,7 +845,7 @@ class CoverDisplay(customtkinter.CTkFrame):
                 img = Image.fromarray(frame_sq).resize((400, 400))
                 
                 if self.taking_photo:
-                    save_path = os.path.join(self.app.project_dir, "cover.jpg")
+                    save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
                     img.save(save_path, quality=90)
                     cap[0].release()
                     self.cam_window.destroy()
@@ -838,15 +857,6 @@ class CoverDisplay(customtkinter.CTkFrame):
             self.after(30, update_cam)
             
         btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
-        
-    def load_cover(self, path):
-        self.cover_path = path
-        if not path or not __import__('os').path.exists(path):
-            self.lbl_img.configure(image="", text=self.title_text)
-            return
-        from PIL import Image
-        self.original_img = Image.open(path).convert("RGB")
-        self._apply_resize()
         
     def flip_cover(self):
         pass
@@ -1218,122 +1228,15 @@ class App(customtkinter.CTk):
         
 
     def _build_ui(self):
-        self.header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
-        self.header.pack(fill="x", pady=(0, 10))
-        
-        # Header com título e controles globais (Recolher Tudo e Tema Dia/Noite)
-        self.lbl_header_title = customtkinter.CTkLabel(self.header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT)
-        self.lbl_header_title.pack(side="left", padx=20, pady=10)
-        
-        # Botão de Tema Dia/Noite no canto superior direito
-        self.btn_theme = customtkinter.CTkButton(
-            self.header, text="☀️ TEMA DIA", width=120, height=32, corner_radius=6,
-            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
-            hover_color=COLOR_BORDER,
-            command=self.toggle_theme
-        )
-        self.btn_theme.pack(side="right", padx=15, pady=8)
+        # 1. Barra de status na base absoluta da janela
+        self.status_bar = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=28, corner_radius=0)
+        self.status_bar.pack(fill="x", side="bottom")
+        self.lbl_status = customtkinter.CTkLabel(self.status_bar, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
+        self.lbl_status.pack(side="left", padx=15, pady=3)
 
-        # Botão para Minimizar / Maximizar todos os painéis juntos
-        self.btn_toggle_all = customtkinter.CTkButton(
-            self.header, text="⇕ RECOLHER TODOS", width=160, height=32, corner_radius=6,
-            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
-            hover_color=COLOR_BORDER,
-            command=self.toggle_all_panels
-        )
-        self.btn_toggle_all.pack(side="right", padx=(0, 5), pady=8)
-        
-        main_container = customtkinter.CTkFrame(self, fg_color="transparent")
-        main_container.pack(fill="both", expand=True, padx=10, pady=5)
-        
-        top_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
-        top_row.pack(fill="x")
-        top_row.columnconfigure(0, weight=1, uniform="a")
-        top_row.columnconfigure(1, weight=1, uniform="a")
-        
-        self.dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
-        self.dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        dev_content = self.dev_frame.content_frame
-        
-        # Rótulos informativos com fonte ampliada e legível
-        f_in = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        f_in.pack(fill="x", padx=15, pady=(6, 2))
-        self.lbl_in = customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=FONT_LABEL, text_color=COLOR_TEXT2)
-        self.lbl_in.pack(side="left")
-        
-        self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_in.pack(fill="x", padx=15, pady=(0, 8))
-        
-        f_out = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        f_out.pack(fill="x", padx=15, pady=(4, 2))
-        self.lbl_out = customtkinter.CTkLabel(f_out, text="Saída de Monitoramento (Fone/Caixas):", font=FONT_LABEL, text_color=COLOR_TEXT2)
-        self.lbl_out.pack(side="left")
-        
-        self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_out.pack(fill="x", padx=15, pady=(0, 8))
-        
-        # Linha com indicador da saída padrão do Windows e botão dedicado
-        f_win = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        f_win.pack(fill="x", padx=15, pady=(4, 8))
-        
-        self.lbl_win_default = customtkinter.CTkLabel(f_win, text="🖥️ Saída Padrão do Windows: Carregando...", font=FONT_LABEL, text_color=COLOR_TEXT)
-        self.lbl_win_default.pack(side="left", fill="x", expand=True)
-        
-        self.btn_snd_settings = customtkinter.CTkButton(
-            f_win, text="⚙️ Som padrão do Windows", width=190, height=28, corner_radius=6,
-            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_LABEL,
-            command=self._open_windows_sound_settings
-        )
-        self.btn_snd_settings.pack(side="right", padx=(10, 0))
-        
-        self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
-        self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-        
-        mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
-        mid_row.pack(fill="both", expand=True, pady=(10,0))
-        mid_row.columnconfigure(0, weight=1, uniform="b")
-        mid_row.columnconfigure(1, weight=1, uniform="b")
-        mid_row.columnconfigure(2, weight=1, uniform="b")
-        mid_row.rowconfigure(0, weight=1)
-        
-        self.turntable = VirtualTurntable(mid_row, app=self)
-        self.turntable.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
-        
-        import os
-        pf_front = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_front.jpg")
-        pf_back = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_back.jpg")
-        
-        self.cover_front = CoverDisplay(mid_row, app=self, title="Capa Frontal")
-        self.cover_front.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
-        self.cover_front.load_cover(pf_front)
-        
-        self.cover_back = CoverDisplay(mid_row, app=self, title="Contracapa")
-        self.cover_back.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
-        self.cover_back.load_cover(pf_back)
-        
-        # vis_frame ABOVE bottom_row
-        vis_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        vis_frame.pack(fill="x", padx=10, pady=(5, 5))
-        
-        # panel_in (left side) -> INPUT VU & INPUT GAIN
-        self.panel_in = VUPanel(vis_frame, title="INPUT VU", knob_label="GAIN", command=self._on_input_gain, init_val=1.0, max_val=3.0)
-        self.panel_in.pack(side="left", padx=(0, 5))
-        self.vu_in = self.panel_in.vu # Bind for audio callback
-        
-        self.waveform = RetroWaveform(vis_frame)
-        self.waveform.pack(side="left", expand=True, fill="both", padx=5)
-        
-        # Equalizador de 3 bandas (Grave, Médio, Agudo)
-        self.eq_panel = EqualizerPanel(vis_frame, on_bass=self._on_eq_bass, on_mid=self._on_eq_mid, on_treble=self._on_eq_treble)
-        self.eq_panel.pack(side="left", padx=5)
-        
-        # panel_out (right side) -> MONITOR VU & MONITOR GAIN
-        self.panel_out = VUPanel(vis_frame, title="MONITOR VU", knob_label="GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
-        self.panel_out.pack(side="right", padx=(5, 0))
-        self.vu_out = self.panel_out.vu # Bind for audio callback
-        
+        # 2. Linha inferior ancorada acima da barra de status (Gravador e Meu Disco)
         bottom_row = customtkinter.CTkFrame(self, fg_color="transparent")
-        bottom_row.pack(fill="x", padx=10, pady=(5, 10))
+        bottom_row.pack(fill="x", side="bottom", padx=10, pady=(5, 10))
         bottom_row.columnconfigure(0, weight=1, uniform="c")
         bottom_row.columnconfigure(1, weight=1, uniform="c")
         
@@ -1398,11 +1301,113 @@ class App(customtkinter.CTk):
         
         self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
         self.btn_split.pack(fill="x", padx=15, pady=(5, 10))
+
+        # 3. Painel de medição VU e Equalizador ancorado acima do Gravador
+        vis_frame = customtkinter.CTkFrame(self, fg_color="transparent")
+        vis_frame.pack(fill="x", side="bottom", padx=10, pady=(5, 5))
         
-        self.status_bar = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=28, corner_radius=0)
-        self.status_bar.pack(fill="x", side="bottom")
-        self.lbl_status = customtkinter.CTkLabel(self.status_bar, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
-        self.lbl_status.pack(side="left", padx=15, pady=3)
+        self.panel_in = VUPanel(vis_frame, title="INPUT VU", knob_label="GAIN", command=self._on_input_gain, init_val=1.0, max_val=3.0)
+        self.panel_in.pack(side="left", padx=(0, 5))
+        self.vu_in = self.panel_in.vu
+        
+        self.waveform = RetroWaveform(vis_frame)
+        self.waveform.pack(side="left", expand=True, fill="both", padx=5)
+        
+        self.eq_panel = EqualizerPanel(vis_frame, on_bass=self._on_eq_bass, on_mid=self._on_eq_mid, on_treble=self._on_eq_treble)
+        self.eq_panel.pack(side="left", padx=5)
+        
+        self.panel_out = VUPanel(vis_frame, title="MONITOR VU", knob_label="GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
+        self.panel_out.pack(side="right", padx=(5, 0))
+        self.vu_out = self.panel_out.vu
+
+        # 4. Header no topo absoluto
+        self.header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
+        self.header.pack(fill="x", side="top", pady=(0, 10))
+        
+        self.lbl_header_title = customtkinter.CTkLabel(self.header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT)
+        self.lbl_header_title.pack(side="left", padx=20, pady=10)
+        
+        self.btn_theme = customtkinter.CTkButton(
+            self.header, text="☀️ TEMA DIA", width=120, height=32, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
+            hover_color=COLOR_BORDER,
+            command=self.toggle_theme
+        )
+        self.btn_theme.pack(side="right", padx=15, pady=8)
+
+        self.btn_toggle_all = customtkinter.CTkButton(
+            self.header, text="⇕ RECOLHER TODOS", width=160, height=32, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
+            hover_color=COLOR_BORDER,
+            command=self.toggle_all_panels
+        )
+        self.btn_toggle_all.pack(side="right", padx=(0, 5), pady=8)
+
+        # 5. Container central flexível ocupando todo o espaço entre o topo e o painel inferior
+        main_container = customtkinter.CTkFrame(self, fg_color="transparent")
+        main_container.pack(fill="both", expand=True, side="top", padx=10, pady=5)
+        
+        top_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        top_row.pack(fill="x", side="top")
+        top_row.columnconfigure(0, weight=1, uniform="a")
+        top_row.columnconfigure(1, weight=1, uniform="a")
+        
+        self.dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
+        self.dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        dev_content = self.dev_frame.content_frame
+        
+        f_in = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_in.pack(fill="x", padx=15, pady=(6, 2))
+        self.lbl_in = customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=FONT_LABEL, text_color=COLOR_TEXT2)
+        self.lbl_in.pack(side="left")
+        
+        self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        self.opt_in.pack(fill="x", padx=15, pady=(0, 8))
+        
+        f_out = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_out.pack(fill="x", padx=15, pady=(4, 2))
+        self.lbl_out = customtkinter.CTkLabel(f_out, text="Saída de Monitoramento (Fone/Caixas):", font=FONT_LABEL, text_color=COLOR_TEXT2)
+        self.lbl_out.pack(side="left")
+        
+        self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
+        self.opt_out.pack(fill="x", padx=15, pady=(0, 8))
+        
+        f_win = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_win.pack(fill="x", padx=15, pady=(4, 8))
+        
+        self.lbl_win_default = customtkinter.CTkLabel(f_win, text="🖥️ Saída Padrão do Windows: Carregando...", font=FONT_LABEL, text_color=COLOR_TEXT)
+        self.lbl_win_default.pack(side="left", fill="x", expand=True)
+        
+        self.btn_snd_settings = customtkinter.CTkButton(
+            f_win, text="⚙️ Som padrão do Windows", width=190, height=28, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_LABEL,
+            command=self._open_windows_sound_settings
+        )
+        self.btn_snd_settings.pack(side="right", padx=(10, 0))
+        
+        self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
+        self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        
+        mid_row = customtkinter.CTkFrame(main_container, fg_color="transparent")
+        mid_row.pack(fill="both", expand=True, side="top", pady=(10,0))
+        mid_row.columnconfigure(0, weight=1, uniform="b")
+        mid_row.columnconfigure(1, weight=1, uniform="b")
+        mid_row.columnconfigure(2, weight=1, uniform="b")
+        mid_row.rowconfigure(0, weight=1)
+        
+        self.turntable = VirtualTurntable(mid_row, app=self)
+        self.turntable.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
+        
+        pf_front = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_front.jpg")
+        pf_back = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "assets", "default_back.jpg")
+        
+        self.cover_front = CoverDisplay(mid_row, app=self, title="Capa Frontal")
+        self.cover_front.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
+        self.cover_front.load_cover(pf_front)
+        
+        self.cover_back = CoverDisplay(mid_row, app=self, title="Contracapa")
+        self.cover_back.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
+        self.cover_back.load_cover(pf_back)
         
         self.update_buttons_state()
 
@@ -1417,6 +1422,10 @@ class App(customtkinter.CTk):
             for p in panels:
                 p.set_collapsed(False)
             self.btn_toggle_all.configure(text="⇕ RECOLHER TODOS")
+        self.update_idletasks()
+        self.turntable.draw_vinyl()
+        self.cover_front.redraw()
+        self.cover_back.redraw()
 
     def toggle_theme(self):
         global COLOR_BG, COLOR_SURFACE, COLOR_SURFACE2, COLOR_BORDER, COLOR_ACCENT
@@ -1636,7 +1645,10 @@ class App(customtkinter.CTk):
                         back_path = os.path.join(self.project_dir, "back.jpg")
                         urllib.request.urlretrieve(img["thumbnails"].get("500", img["image"]), back_path)
                         
-                self.after(0, lambda: self.cover_front.load_cover(front_path, back_path))
+                if front_path:
+                    self.after(0, lambda: self.cover_front.load_cover(front_path))
+                if back_path:
+                    self.after(0, lambda: self.cover_back.load_cover(back_path))
                 self.after(0, lambda: self.lbl_status.configure(text="SISTEMA PRONTO", text_color=COLOR_GREEN))
             except Exception as e:
                 print("Cover fetch error:", e)
