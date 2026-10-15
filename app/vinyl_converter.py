@@ -93,6 +93,7 @@ class AudioEngine:
         self.eq_bass = 1.0
         self.eq_mid = 1.0
         self.eq_treble = 1.0
+        self.muted = False
         self._precompute_eq_filters()
 
     def _precompute_eq_filters(self):
@@ -223,6 +224,9 @@ class AudioEngine:
                     elif data.shape[1] == 1:
                         data = np.column_stack((data, data))
 
+                    if getattr(self, 'muted', False):
+                        data = np.zeros_like(data)
+
                     # Aplica equalização (Grave, Médio, Agudo) e ganhos dos knobs
                     data = self.apply_eq(data)
                     data = data * self.input_gain * self.monitor_volume
@@ -250,6 +254,9 @@ class AudioEngine:
             self.passthrough_running = False
 
     def _audio_callback(self, indata, outdata, frames, time_info, status):
+        if getattr(self, 'muted', False):
+            indata = np.zeros_like(indata)
+
         if self.paused:
             outdata[:] = np.zeros_like(outdata)
             return
@@ -415,23 +422,27 @@ class RotaryKnob(customtkinter.CTkFrame):
         self.lbl.configure(text_color=COLOR_TEXT2)
         self.draw()
 
-class RetroWaveform(tk.Canvas):
+class RetroWaveform(customtkinter.CTkFrame):
     def __init__(self, master, **kwargs):
-        super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_BORDER, width=400, height=120, **kwargs)
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color=COLOR_BORDER, height=140, **kwargs)
+        self.pack_propagate(False)
         self.history = collections.deque(maxlen=400)
         self.style = 0
-        self.bind("<Button-1>", self.toggle_style)
+        self.canvas = tk.Canvas(self, bg=COLOR_BG, highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True, padx=4, pady=4)
+        self.canvas.bind("<Button-1>", self.toggle_style)
         
     def toggle_style(self, event):
         self.style = (self.style + 1) % 3
+        self.redraw()
         
     def add_sample(self, amplitude: float):
         self.history.append(amplitude)
         
     def redraw(self):
-        self.delete("all")
-        w = self.winfo_width()
-        h = self.winfo_height()
+        self.canvas.delete("all")
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
         if w < 10 or h < 10: return
         
         mid_y = h / 2
@@ -442,19 +453,20 @@ class RetroWaveform(tk.Canvas):
             ah = int(amp * (h / 2 - 5))
             
             if self.style == 0:
-                self.create_line(x, mid_y - ah, x, mid_y + ah, fill=COLOR_ACCENT, width=2 if step > 2 else 1)
+                self.canvas.create_line(x, mid_y - ah, x, mid_y + ah, fill=COLOR_ACCENT, width=2 if step > 2 else 1)
             elif self.style == 1:
-                self.create_rectangle(x, mid_y - ah, x + max(1, int(step)), mid_y + ah, fill=COLOR_TEXT, outline="")
+                self.canvas.create_rectangle(x, mid_y - ah, x + max(1, int(step)), mid_y + ah, fill=COLOR_TEXT, outline="")
             else:
-                self.create_oval(x, mid_y - ah - 2, x + 2, mid_y - ah, fill=COLOR_RED, outline="")
-                self.create_oval(x, mid_y + ah, x + 2, mid_y + ah + 2, fill=COLOR_RED, outline="")
-                self.create_line(x, mid_y, x + 2, mid_y, fill=COLOR_ACCENT)
+                self.canvas.create_oval(x, mid_y - ah - 2, x + 2, mid_y - ah, fill=COLOR_RED, outline="")
+                self.canvas.create_oval(x, mid_y + ah, x + 2, mid_y + ah + 2, fill=COLOR_RED, outline="")
+                self.canvas.create_line(x, mid_y, x + 2, mid_y, fill=COLOR_ACCENT)
                 
-        self.create_line(0, mid_y, w, mid_y, fill=COLOR_SURFACE2, dash=(2, 2))
-        self.create_text(w - 60, 15, text="[MUDAR ANIMAÇÃO]", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
+        self.canvas.create_line(0, mid_y, w, mid_y, fill=COLOR_SURFACE2, dash=(2, 2))
+        self.canvas.create_text(w - 60, 15, text="[MUDAR ANIMAÇÃO]", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
 
     def update_theme(self):
-        self.configure(bg=COLOR_BG, highlightbackground=COLOR_BORDER)
+        self.configure(fg_color=COLOR_SURFACE, border_color=COLOR_BORDER)
+        self.canvas.configure(bg=COLOR_BG)
         self.redraw()
 
 class AnalogVUMeter(tk.Canvas):
@@ -1082,11 +1094,11 @@ class CollapsibleFrame(customtkinter.CTkFrame):
         self.btn_toggle.pack(side="right")
         
         self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.content_frame.grid(row=1, column=0, sticky="nsew")
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
         
     def toggle(self):
         if self.is_collapsed:
-            self.content_frame.grid(row=1, column=0, sticky="nsew")
+            self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
             self.btn_toggle.configure(text="▼")
             self.is_collapsed = False
         else:
@@ -1100,7 +1112,7 @@ class CollapsibleFrame(customtkinter.CTkFrame):
             self.btn_toggle.configure(text="▲")
             self.is_collapsed = True
         elif not collapse and self.is_collapsed:
-            self.content_frame.grid(row=1, column=0, sticky="nsew")
+            self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
             self.btn_toggle.configure(text="▼")
             self.is_collapsed = False
 
@@ -1114,55 +1126,166 @@ class FileBrowser(customtkinter.CTkFrame):
         super().__init__(master, fg_color="transparent", **kwargs)
         self.app = app
         
-        top = customtkinter.CTkFrame(self, fg_color="transparent")
-        top.pack(fill="x", pady=(0, 5))
+        # Linha 1: Caminho completo da pasta
+        top_path = customtkinter.CTkFrame(self, fg_color="transparent")
+        top_path.pack(fill="x", pady=(0, 4))
         
-        self.lbl_path = customtkinter.CTkLabel(top, text="...", font=FONT_MAIN, text_color=COLOR_TEXT)
-        self.lbl_path.pack(side="left", fill="x", expand=True, padx=(0, 5))
+        self.lbl_path = customtkinter.CTkLabel(
+            top_path, text="...", font=(FONT_FAMILY, 10, "bold"),
+            text_color=COLOR_TEXT, anchor="w"
+        )
+        self.lbl_path.pack(side="left", fill="x", expand=True)
         
-        def open_explorer():
-            import os
-            os.startfile(self.app.project_dir)
-            
-        self.btn_open = customtkinter.CTkButton(top, text="Abrir Pasta", height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=open_explorer)
-        self.btn_open.pack(side="right", padx=(5,0))
-        self.btn_change = customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=self.app._choose_folder)
-        self.btn_change.pack(side="right")
+        # Linha 2: Botões de ação rápida
+        top_btns = customtkinter.CTkFrame(self, fg_color="transparent")
+        top_btns.pack(fill="x", pady=(0, 4))
         
-        self.scroll = customtkinter.CTkScrollableFrame(self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2)
-        self.scroll.pack(fill="both", expand=True, pady=5)
+        self.btn_up = customtkinter.CTkButton(
+            top_btns, text="⬆️ Subir", width=65, height=24,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.go_up
+        )
+        self.btn_up.pack(side="left", padx=(0, 4))
         
-        self.btn_new = customtkinter.CTkButton(self, text="+ Nova Pasta", height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=self.new_folder)
-        self.btn_new.pack(fill="x")
+        self.btn_change = customtkinter.CTkButton(
+            top_btns, text="📁 Alterar", width=75, height=24,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.app._choose_folder
+        )
+        self.btn_change.pack(side="left", padx=2)
+        
+        self.btn_open = customtkinter.CTkButton(
+            top_btns, text="📂 Abrir no PC", width=95, height=24,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.open_explorer
+        )
+        self.btn_open.pack(side="left", padx=2)
+        
+        self.btn_new = customtkinter.CTkButton(
+            top_btns, text="➕ Nova Pasta", width=95, height=24,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.new_folder
+        )
+        self.btn_new.pack(side="right")
+        
+        # Lista com scroll fixo compacto (95px)
+        self.scroll = customtkinter.CTkScrollableFrame(
+            self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2, height=95
+        )
+        self.scroll.pack(fill="both", expand=True, pady=(2, 0))
 
-    def update_theme(self):
-        self.lbl_path.configure(text_color=COLOR_TEXT)
-        self.btn_open.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
-        self.btn_change.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
-        self.btn_new.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
-        self.scroll.configure(fg_color=COLOR_BG, border_color=COLOR_SURFACE2)
-        self.update_browser()
-        
-    def update_browser(self):
-        self.lbl_path.configure(text=os.path.basename(self.app.project_dir) or self.app.project_dir)
-        for w in self.scroll.winfo_children(): w.destroy()
-        
-        parent = os.path.dirname(self.app.project_dir)
+    def open_explorer(self):
         try:
-            for d in os.listdir(parent):
-                full = os.path.join(parent, d)
+            os.startfile(self.app.project_dir)
+        except Exception as e:
+            print("Open explorer error:", e)
+
+    def go_up(self):
+        parent = os.path.dirname(self.app.project_dir)
+        if parent and os.path.isdir(parent) and parent != self.app.project_dir:
+            self.app.set_project_dir(parent)
+
+    def update_browser(self):
+        self.lbl_path.configure(text=f"📁 {self.app.project_dir}")
+        for w in self.scroll.winfo_children():
+            w.destroy()
+            
+        cur = self.app.project_dir
+        if not os.path.isdir(cur):
+            return
+            
+        try:
+            entries = os.listdir(cur)
+            dirs = []
+            audio_files = []
+            img_files = []
+            other_files = []
+            
+            for item in sorted(entries, key=lambda s: s.lower()):
+                full = os.path.join(cur, item)
                 if os.path.isdir(full):
-                    btn = customtkinter.CTkButton(self.scroll, text=f"📁 {d}", fg_color="transparent", text_color=COLOR_TEXT, anchor="w", command=lambda p=full: self.app.set_project_dir(p))
-                    btn.pack(fill="x", pady=1)
-        except: pass
+                    dirs.append((item, full))
+                else:
+                    ext = os.path.splitext(item)[1].lower()
+                    if ext in ('.wav', '.mp3', '.flac', '.ogg'):
+                        audio_files.append((item, full))
+                    elif ext in ('.jpg', '.jpeg', '.png'):
+                        img_files.append((item, full))
+                    else:
+                        other_files.append((item, full))
+                        
+            if not dirs and not audio_files and not img_files and not other_files:
+                lbl = customtkinter.CTkLabel(self.scroll, text="(Pasta vazia)", font=FONT_MAIN, text_color=COLOR_TEXT2)
+                lbl.pack(pady=10)
+                return
+
+            # Pastas
+            for item, full in dirs:
+                f_row = customtkinter.CTkFrame(self.scroll, fg_color="transparent")
+                f_row.pack(fill="x", pady=1)
+                btn = customtkinter.CTkButton(
+                    f_row, text=f"📁 {item}", fg_color="transparent",
+                    text_color=COLOR_TEXT, hover_color=COLOR_SURFACE2,
+                    anchor="w", font=FONT_MAIN, height=22,
+                    command=lambda p=full: self.app.set_project_dir(p)
+                )
+                btn.pack(side="left", fill="x", expand=True)
+
+            # Arquivos de áudio
+            for item, full in audio_files:
+                f_row = customtkinter.CTkFrame(self.scroll, fg_color="transparent")
+                f_row.pack(fill="x", pady=1)
+                btn = customtkinter.CTkButton(
+                    f_row, text=f"🎵 {item}", fg_color="transparent",
+                    text_color=COLOR_ACCENT, hover_color=COLOR_SURFACE2,
+                    anchor="w", font=FONT_MAIN, height=22,
+                    command=lambda p=full: os.startfile(p)
+                )
+                btn.pack(side="left", fill="x", expand=True)
+
+            # Imagens
+            for item, full in img_files:
+                f_row = customtkinter.CTkFrame(self.scroll, fg_color="transparent")
+                f_row.pack(fill="x", pady=1)
+                btn = customtkinter.CTkButton(
+                    f_row, text=f"🖼️ {item}", fg_color="transparent",
+                    text_color=COLOR_GREEN, hover_color=COLOR_SURFACE2,
+                    anchor="w", font=FONT_MAIN, height=22,
+                    command=lambda p=full: os.startfile(p)
+                )
+                btn.pack(side="left", fill="x", expand=True)
+
+            # Outros
+            for item, full in other_files:
+                f_row = customtkinter.CTkFrame(self.scroll, fg_color="transparent")
+                f_row.pack(fill="x", pady=1)
+                btn = customtkinter.CTkButton(
+                    f_row, text=f"📄 {item}", fg_color="transparent",
+                    text_color=COLOR_TEXT2, hover_color=COLOR_SURFACE2,
+                    anchor="w", font=FONT_MAIN, height=22,
+                    command=lambda p=full: os.startfile(p)
+                )
+                btn.pack(side="left", fill="x", expand=True)
+
+        except Exception as e:
+            print("Update browser error:", e)
 
     def new_folder(self):
         import tkinter.simpledialog
-        name = tkinter.simpledialog.askstring("Nova Pasta", "Nome do novo disco:")
-        if name:
-            new_path = os.path.join(os.path.dirname(self.app.project_dir), name)
+        name = tkinter.simpledialog.askstring("Nova Pasta", "Nome da nova subpasta:")
+        if name and name.strip():
+            new_path = os.path.join(self.app.project_dir, name.strip())
             os.makedirs(new_path, exist_ok=True)
             self.app.set_project_dir(new_path)
+
+    def update_theme(self):
+        self.lbl_path.configure(text_color=COLOR_TEXT)
+        self.btn_up.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_change.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_open.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_new.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.scroll.configure(fg_color=COLOR_BG, border_color=COLOR_SURFACE2)
+        self.update_browser()
 
 
 class VUPanel(customtkinter.CTkFrame):
@@ -1236,7 +1359,7 @@ class App(customtkinter.CTk):
 
         # 2. Linha inferior ancorada acima da barra de status (Gravador e Meu Disco)
         bottom_row = customtkinter.CTkFrame(self, fg_color="transparent")
-        bottom_row.pack(fill="x", side="bottom", padx=10, pady=(5, 10))
+        bottom_row.pack(fill="x", side="bottom", padx=10, pady=(2, 6))
         bottom_row.columnconfigure(0, weight=1, uniform="c")
         bottom_row.columnconfigure(1, weight=1, uniform="c")
         
@@ -1247,60 +1370,72 @@ class App(customtkinter.CTk):
         self.browser_col = CollapsibleFrame(bottom_row, title="[ M E U   D I S C O ]")
         self.browser_col.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.browser = FileBrowser(self.browser_col.content_frame, app=self)
-        self.browser.pack(fill="both", expand=True, padx=15, pady=10)
+        self.browser.pack(fill="both", expand=True, padx=10, pady=5)
         self.browser.update_browser()
         
         # Recorder UI
         t_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_top.pack(fill="x", padx=15, pady=5)
+        t_top.pack(fill="x", padx=10, pady=(2, 2))
         
         self.chk_magic = customtkinter.CTkSwitch(t_top, text="✨ Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_BOLD)
-        self.chk_magic.pack(pady=(0, 10))
+        self.chk_magic.pack(pady=(0, 4))
         
         r_btns = customtkinter.CTkFrame(t_top, fg_color="transparent")
         r_btns.pack(fill="x")
-        self.lbl_timer = customtkinter.CTkLabel(r_btns, text="00:00.00", font=(FONT_FAMILY, 28, "bold"), text_color=COLOR_RED)
-        self.lbl_timer.pack(side="left", padx=(0, 15))
-        self.btn_rec_a = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=35, corner_radius=6, command=lambda: self.on_rec_side("LadoA"))
-        self.btn_rec_a.pack(side="left", padx=(0, 5), expand=True, fill="x")
-        self.btn_rec_b = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=35, corner_radius=6, command=lambda: self.on_rec_side("LadoB"))
-        self.btn_rec_b.pack(side="left", padx=5, expand=True, fill="x")
-        self.btn_pause = customtkinter.CTkButton(r_btns, text="⏸ PAUSE", width=80, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_pause_click)
-        self.btn_pause.pack(side="left", padx=5)
-        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", width=80, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=35, corner_radius=6, state="disabled", command=self.on_stop_click)
-        self.btn_stop.pack(side="left", padx=5)
+        self.lbl_timer = customtkinter.CTkLabel(r_btns, text="00:00.00", font=(FONT_FAMILY, 26, "bold"), text_color=COLOR_RED)
+        self.lbl_timer.pack(side="left", padx=(0, 10))
+        self.btn_rec_a = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoA"))
+        self.btn_rec_a.pack(side="left", padx=(0, 4), expand=True, fill="x")
+        self.btn_rec_b = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoB"))
+        self.btn_rec_b.pack(side="left", padx=4, expand=True, fill="x")
+        self.btn_pause = customtkinter.CTkButton(r_btns, text="⏸ PAUSE", width=75, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_pause_click)
+        self.btn_pause.pack(side="left", padx=4)
+        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", width=75, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_stop_click)
+        self.btn_stop.pack(side="left", padx=(4, 0))
         
         t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_mid.pack(fill="x", padx=15, pady=10)
+        t_mid.pack(fill="x", padx=10, pady=(2, 2))
         
         sw_f = customtkinter.CTkFrame(t_mid, fg_color="transparent")
-        sw_f.pack(side="left", fill="y", padx=(0, 20))
+        sw_f.pack(side="left", fill="y", padx=(0, 10))
         self.chk_normalize = customtkinter.CTkSwitch(sw_f, text="Normalizar Volume", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_normalize.pack(anchor="w", pady=4)
+        self.chk_normalize.pack(anchor="w", pady=2)
         self.chk_denoise = customtkinter.CTkSwitch(sw_f, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_denoise.pack(anchor="w", pady=4)
+        self.chk_denoise.pack(anchor="w", pady=2)
         self.chk_clipping = customtkinter.CTkSwitch(sw_f, text="Remover Clippings", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_clipping.pack(anchor="w", pady=4)
+        self.chk_clipping.pack(anchor="w", pady=2)
         
         f_opts = customtkinter.CTkFrame(t_mid, fg_color="transparent")
         f_opts.pack(side="left", fill="y", expand=True)
         
         opt_grid1 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
-        opt_grid1.pack(fill="x", pady=2)
+        opt_grid1.pack(fill="x", pady=1)
         self.lbl_format = customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2)
         self.lbl_format.pack(side="left")
-        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
+        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24)
         self.opt_format.pack(side="right")
         
         opt_grid2 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
-        opt_grid2.pack(fill="x", pady=2)
+        opt_grid2.pack(fill="x", pady=1)
         self.lbl_export = customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2)
         self.lbl_export.pack(side="left")
-        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
+        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24)
         self.opt_export.pack(side="right")
         
-        self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
-        self.btn_split.pack(fill="x", padx=15, pady=(5, 10))
+        f_export_btns = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        f_export_btns.pack(fill="x", padx=10, pady=(4, 2))
+        
+        self.btn_export = customtkinter.CTkButton(
+            f_export_btns, text="💾 EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000",
+            font=FONT_BOLD, height=32, corner_radius=6, command=self.on_export_direct
+        )
+        self.btn_export.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        
+        self.btn_split = customtkinter.CTkButton(
+            f_export_btns, text="✂ SEPARAR FAIXAS + EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000",
+            font=FONT_BOLD, height=32, corner_radius=6, command=self.on_auto_split
+        )
+        self.btn_split.pack(side="left", fill="x", expand=True, padx=(3, 0))
 
         # 3. Painel de medição VU e Equalizador ancorado acima do Gravador
         vis_frame = customtkinter.CTkFrame(self, fg_color="transparent")
@@ -1360,6 +1495,13 @@ class App(customtkinter.CTk):
         f_in.pack(fill="x", padx=15, pady=(6, 2))
         self.lbl_in = customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=FONT_LABEL, text_color=COLOR_TEXT2)
         self.lbl_in.pack(side="left")
+        
+        self.btn_mute = customtkinter.CTkButton(
+            f_in, text="🔊 Silenciar Entrada", width=140, height=24, corner_radius=4,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            hover_color=COLOR_BORDER, command=self.toggle_mute
+        )
+        self.btn_mute.pack(side="right")
         
         self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
         self.opt_in.pack(fill="x", padx=15, pady=(0, 8))
@@ -1495,13 +1637,28 @@ class App(customtkinter.CTk):
         self.lbl_export.configure(text_color=COLOR_TEXT2)
         self.opt_format.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
         self.opt_export.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_export.configure(fg_color=COLOR_ACCENT)
         self.btn_split.configure(fg_color=COLOR_ACCENT)
+        
+        if getattr(self.engine, 'muted', False):
+            self.btn_mute.configure(fg_color=COLOR_RED, text_color="#FFF")
+        else:
+            self.btn_mute.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
         
         self.browser_col.update_theme()
         self.browser.update_theme()
         
         self.status_bar.configure(fg_color=COLOR_SURFACE)
         self.update_buttons_state()
+
+    def toggle_mute(self):
+        self.engine.muted = not self.engine.muted
+        if self.engine.muted:
+            self.btn_mute.configure(text="🔇 Entrada Mutada", fg_color=COLOR_RED, text_color="#FFF")
+            self.lbl_status.configure(text="ENTRADA DE ÁUDIO MUTADA (SILENCIADA)", text_color=COLOR_RED)
+        else:
+            self.btn_mute.configure(text="🔊 Silenciar Entrada", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+            self.lbl_status.configure(text="ENTRADA DE ÁUDIO ATIVA", text_color=COLOR_GREEN)
 
     def _on_input_gain(self, val): self.engine.input_gain = float(val)
     def _on_monitor_gain(self, val): self.engine.monitor_volume = float(val)
@@ -1557,12 +1714,19 @@ class App(customtkinter.CTk):
     def set_project_dir(self, new_dir):
         self.project_dir = new_dir
         self.browser.update_browser()
+        self.update_buttons_state()
+        cov_f = os.path.join(self.project_dir, "cover.jpg")
+        cov_b = os.path.join(self.project_dir, "back.jpg")
+        lbl_v = os.path.join(self.project_dir, "label.jpg")
+        self.cover_front.load_cover(cov_f if os.path.exists(cov_f) else None)
+        self.cover_back.load_cover(cov_b if os.path.exists(cov_b) else None)
+        self.turntable.label_path = lbl_v if os.path.exists(lbl_v) else None
+        self.turntable.draw_vinyl()
 
     def _choose_folder(self):
         folder = filedialog.askdirectory(initialdir=self.project_dir, title="Escolha a pasta do disco")
         if folder:
-            self.project_dir = folder
-            self.lbl_folder.configure(text=self.project_dir)
+            self.set_project_dir(folder)
 
     def _on_volume_change(self, val): self.engine.monitor_volume = float(val)
     def _on_device_change(self, val): self.engine.stop_stream(); self._start_stream()
@@ -1598,6 +1762,7 @@ class App(customtkinter.CTk):
             
         self.btn_rec_a.configure(state="disabled")
         self.btn_rec_b.configure(state="disabled")
+        self.btn_export.configure(state="disabled")
         self.btn_split.configure(state="disabled")
         self.btn_pause.configure(state="normal", fg_color=COLOR_ACCENT, text="⏸ PAUSE")
         self.btn_stop.configure(state="normal", fg_color=COLOR_ACCENT)
@@ -1621,10 +1786,64 @@ class App(customtkinter.CTk):
         self.turntable.set_playing(False)
         self.btn_rec_a.configure(state="normal")
         self.btn_rec_b.configure(state="normal")
+        self.btn_export.configure(state="normal")
         self.btn_split.configure(state="normal")
         self.btn_pause.configure(state="disabled", fg_color=COLOR_SURFACE2, text="⏸ PAUSE")
         self.btn_stop.configure(state="disabled", fg_color=COLOR_SURFACE2)
         self.lbl_status.configure(text="GRAVAÇÃO FINALIZADA. PRONTO.", text_color=COLOR_GREEN)
+        self.update_buttons_state()
+        self.browser.update_browser()
+
+    def on_export_direct(self):
+        lado_a = os.path.join(self.project_dir, "LadoA.wav")
+        lado_b = os.path.join(self.project_dir, "LadoB.wav")
+        files = []
+        if os.path.exists(lado_a): files.append(("Lado A", lado_a))
+        if os.path.exists(lado_b): files.append(("Lado B", lado_b))
+        if not files:
+            messagebox.showwarning("Aviso", "Não há gravações de Lado A ou Lado B nesta pasta para exportar.")
+            return
+            
+        self.lbl_status.configure(text="EXPORTANDO ÁUDIO DIRETO...", text_color=COLOR_YELLOW)
+        self.btn_export.configure(state="disabled")
+        self.btn_split.configure(state="disabled")
+        meta = self.meta_card.get_metadata()
+        
+        def task():
+            try:
+                fmt = self.opt_export.get()
+                ext = ".mp3" if "MP3" in fmt else ".flac" if "FLAC" in fmt else ".wav"
+                denoise = bool(self.chk_denoise.get())
+                normalize = bool(self.chk_normalize.get())
+                cover_path = os.path.join(self.project_dir, "cover.jpg")
+                
+                for name, p in files:
+                    data, sr = sf.read(p)
+                    duration = len(data) / sr
+                    m = meta.copy()
+                    album_title = m.get("album", "Vinil")
+                    m["title"] = f"{album_title} - {name}"
+                    artist_part = f"{m['artist']} - " if m.get("artist") else ""
+                    out_name = f"{artist_part}{album_title} - {name}{ext}"
+                    out_path = os.path.join(self.project_dir, out_name)
+                    self.engine.export_chunk(p, out_path, m, 0.0, duration, fmt, denoise, normalize, cover_path)
+                    
+                self.after(0, lambda: [
+                    self.lbl_status.configure(text="EXPORTAÇÃO CONCLUÍDA COM SUCESSO!", text_color=COLOR_GREEN),
+                    self.browser.update_browser(),
+                    messagebox.showinfo("Exportação", "Gravação exportada diretamente com sucesso!")
+                ])
+            except Exception as e:
+                self.after(0, lambda: [
+                    self.lbl_status.configure(text="ERRO AO EXPORTAR ÁUDIO", text_color=COLOR_RED),
+                    messagebox.showerror("Erro", f"Erro ao exportar: {e}")
+                ])
+            finally:
+                self.after(0, lambda: [
+                    self.btn_export.configure(state="normal"),
+                    self.btn_split.configure(state="normal")
+                ])
+        threading.Thread(target=task, daemon=True).start()
         
     def _fetch_cover_art(self, release_id):
         def task():
@@ -1670,6 +1889,7 @@ class App(customtkinter.CTk):
             
         self.lbl_status.configure(text="ANALISANDO SILÊNCIO E SEPARANDO FAIXAS (ISSO PODE DEMORAR)...", text_color=COLOR_YELLOW)
         self.btn_split.configure(state="disabled")
+        self.btn_export.configure(state="disabled")
         self.update()
         
         meta = self.meta_card.get_metadata()
@@ -1746,13 +1966,19 @@ class App(customtkinter.CTk):
                     self.engine.export_chunk(wav_path, out_path, track_meta, start_t, duration, fmt, denoise, normalize, cover_path)
                     track_num += 1
 
-            self.after(0, lambda: self.lbl_status.configure(text=f"SUCESSO! {track_num-1} FAIXAS GERADAS.", text_color=COLOR_GREEN))
-            self.after(0, lambda: messagebox.showinfo("Processo Concluído", f"Foram separadas e exportadas {track_num-1} faixas na pasta do projeto."))
+            self.after(0, lambda: [
+                self.lbl_status.configure(text=f"SUCESSO! {track_num-1} FAIXAS GERADAS.", text_color=COLOR_GREEN),
+                self.browser.update_browser(),
+                messagebox.showinfo("Processo Concluído", f"Foram separadas e exportadas {track_num-1} faixas na pasta do projeto.")
+            ])
         except Exception as e:
             self.after(0, lambda: self.lbl_status.configure(text="ERRO AO SEPARAR FAIXAS", text_color=COLOR_RED))
             print(e)
         finally:
-            self.after(0, lambda: self.btn_split.configure(state="normal"))
+            self.after(0, lambda: [
+                self.btn_split.configure(state="normal"),
+                self.btn_export.configure(state="normal")
+            ])
 
     def _ui_update_loop(self):
         if getattr(self.engine, 'trigger_auto_stop', False):
