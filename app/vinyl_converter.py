@@ -12,20 +12,54 @@ import shutil
 import os
 import sys
 
-# --- VINTAGE / ANALOG COLORS ---
-COLOR_BG         = "#121212"   # Chassi escuro
-COLOR_SURFACE    = "#1E1E1E"   # Painéis
-COLOR_SURFACE2   = "#282828"   # Botões e fundos de input
-COLOR_ACCENT     = "#D87D00"   # Laranja/Âmbar (vintage)
-COLOR_TEXT       = "#FFB84D"   # Texto luminoso estilo painel analógico
-COLOR_TEXT2      = "#A37A3E"   # Texto secundário dim
-COLOR_TEXT3      = "#59472B"   # Texto desabilitado
-COLOR_RED        = "#E63900"   # Clip do VU / Gravação
-COLOR_YELLOW     = "#FFB300"   # Médio do VU
-COLOR_GREEN      = "#85C733"   # Baixo do VU
+# --- VINTAGE / ANALOG THEMES (NIGHT & DAY) ---
+THEMES = {
+    "dark": {
+        "bg": "#121212",        # Chassi escuro
+        "surface": "#1E1E1E",   # Painéis
+        "surface2": "#282828",  # Botões e fundos de input
+        "border": "#333333",    # Bordas
+        "accent": "#D87D00",    # Laranja/Âmbar (vintage)
+        "text": "#FFB84D",      # Texto luminoso estilo painel analógico
+        "text2": "#D6A354",     # Texto secundário nítido
+        "text3": "#8C6A38",     # Texto terciário
+        "red": "#E63900",       # Clip do VU / Gravação
+        "yellow": "#FFB300",    # Médio do VU
+        "green": "#85C733",     # Baixo do VU
+        "ctk_mode": "dark"
+    },
+    "light": {
+        "bg": "#F5F2EB",        # Chassi Off-White vintage suave
+        "surface": "#EAE4D7",   # Painéis bege/creme clássico
+        "surface2": "#DDD5C4",  # Botões e caixas de input
+        "border": "#C7BEAB",    # Bordas suaves
+        "accent": "#D87D00",    # Laranja vintage
+        "text": "#2B2115",      # Texto escuro contrastante
+        "text2": "#634E35",     # Texto secundário legível
+        "text3": "#8A7456",     # Texto terciário
+        "red": "#D12A00",
+        "yellow": "#D48B00",
+        "green": "#4F8C18",
+        "ctk_mode": "light"
+    }
+}
+
+CURRENT_THEME = "dark"
+COLOR_BG         = THEMES[CURRENT_THEME]["bg"]
+COLOR_SURFACE    = THEMES[CURRENT_THEME]["surface"]
+COLOR_SURFACE2   = THEMES[CURRENT_THEME]["surface2"]
+COLOR_BORDER     = THEMES[CURRENT_THEME]["border"]
+COLOR_ACCENT     = THEMES[CURRENT_THEME]["accent"]
+COLOR_TEXT       = THEMES[CURRENT_THEME]["text"]
+COLOR_TEXT2      = THEMES[CURRENT_THEME]["text2"]
+COLOR_TEXT3      = THEMES[CURRENT_THEME]["text3"]
+COLOR_RED        = THEMES[CURRENT_THEME]["red"]
+COLOR_YELLOW     = THEMES[CURRENT_THEME]["yellow"]
+COLOR_GREEN      = THEMES[CURRENT_THEME]["green"]
 
 FONT_FAMILY = "Consolas" if sys.platform == "win32" else "Menlo"
 FONT_MAIN = (FONT_FAMILY, 12)
+FONT_LABEL = (FONT_FAMILY, 12, "bold") # Legendas legíveis e nítidas
 FONT_BOLD = (FONT_FAMILY, 12, "bold")
 FONT_TITLE = (FONT_FAMILY, 18, "bold")
 
@@ -369,16 +403,21 @@ class RotaryKnob(customtkinter.CTkFrame):
     def draw(self):
         self.canvas.delete("all")
         cx, cy, r = 25, 25, 18
-        self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill=COLOR_SURFACE2, outline=COLOR_SURFACE, width=2)
+        self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill=COLOR_SURFACE2, outline=COLOR_BORDER, width=2)
         angle = 135 + (self.val / self.max_val) * 270
         rad = self.math.radians(angle)
         lx = cx + (r-4) * self.math.cos(rad)
         ly = cy + (r-4) * self.math.sin(rad)
         self.canvas.create_line(cx, cy, lx, ly, fill=COLOR_ACCENT, width=3)
 
+    def update_theme(self):
+        self.canvas.configure(bg=COLOR_BG)
+        self.lbl.configure(text_color=COLOR_TEXT2)
+        self.draw()
+
 class RetroWaveform(tk.Canvas):
     def __init__(self, master, **kwargs):
-        super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_TEXT3, width=400, height=120, **kwargs)
+        super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_BORDER, width=400, height=120, **kwargs)
         self.history = collections.deque(maxlen=400)
         self.style = 0
         self.bind("<Button-1>", self.toggle_style)
@@ -414,9 +453,13 @@ class RetroWaveform(tk.Canvas):
         self.create_line(0, mid_y, w, mid_y, fill=COLOR_SURFACE2, dash=(2, 2))
         self.create_text(w - 60, 15, text="[MUDAR ANIMAÇÃO]", fill=COLOR_TEXT2, font=(FONT_FAMILY, 8, "bold"))
 
+    def update_theme(self):
+        self.configure(bg=COLOR_BG, highlightbackground=COLOR_BORDER)
+        self.redraw()
+
 class AnalogVUMeter(tk.Canvas):
     def __init__(self, master, label="VU", **kwargs):
-        super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_TEXT3, width=90, height=120, **kwargs)
+        super().__init__(master, bg=COLOR_BG, highlightthickness=1, highlightbackground=COLOR_BORDER, width=90, height=120, **kwargs)
         self.label = label
         self.style = 0
         self.bind("<Button-1>", self.toggle_style)
@@ -424,6 +467,10 @@ class AnalogVUMeter(tk.Canvas):
         
     def toggle_style(self, event=None):
         self.style = (self.style + 1) % 3
+        self.draw(0.0, 0.0)
+
+    def update_theme(self):
+        self.configure(bg=COLOR_BG, highlightbackground=COLOR_BORDER)
         self.draw(0.0, 0.0)
         
     def draw(self, vu_L, vu_R):
@@ -642,6 +689,10 @@ class VirtualTurntable(customtkinter.CTkFrame):
             
         self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=COLOR_BG, outline="")
 
+    def update_theme(self):
+        self.canvas.configure(bg=COLOR_BG)
+        self.draw_vinyl()
+
 
 class CoverDisplay(customtkinter.CTkFrame):
     def __init__(self, master, app=None, title="CAPA", **kwargs):
@@ -661,6 +712,9 @@ class CoverDisplay(customtkinter.CTkFrame):
         self.lbl_img.bind("<Enter>", self.on_hover)
         self.lbl_img.bind("<Leave>", self.on_leave)
         self.lbl_img.bind("<Configure>", self.on_resize)
+
+    def update_theme(self):
+        self.lbl_img.configure(fg_color=COLOR_BG, text_color=COLOR_SURFACE2)
 
     def on_resize(self, event):
         if not self.original_img: return
@@ -855,52 +909,80 @@ CARTRIDGES = [
 
 class MetadataCard(customtkinter.CTkFrame):
     def __init__(self, master, on_album_found=None, **kwargs):
-        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=0, border_width=1, border_color=COLOR_SURFACE2, **kwargs)
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color=COLOR_BORDER, **kwargs)
         self.on_album_found = on_album_found
         self.is_collapsed = False
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
         
-        top_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        top_frame.pack(fill="x", pady=(10, 5), padx=15)
+        self.header = customtkinter.CTkFrame(self, fg_color="transparent")
+        self.header.grid(row=0, column=0, sticky="ew", padx=15, pady=10)
         
-        lbl_title = customtkinter.CTkLabel(top_frame, text="[ ADICIONAR INFORMAÇÕES DO DISCO ]", font=FONT_BOLD, text_color=COLOR_TEXT2)
-        lbl_title.pack(side="left")
+        self.lbl_title = customtkinter.CTkLabel(self.header, text="[ ADICIONAR INFORMAÇÕES DO DISCO ]", font=FONT_BOLD, text_color=COLOR_TEXT)
+        self.lbl_title.pack(side="left")
         
-        btn_toggle = customtkinter.CTkButton(top_frame, text="[-]", width=30, height=24, fg_color="transparent", font=FONT_BOLD, command=self.toggle)
-        btn_toggle.pack(side="right", padx=(10,0))
+        # Flecha laranja padrão idêntica aos outros painéis
+        self.btn_toggle = customtkinter.CTkButton(
+            self.header, text="▼", width=30, height=24, fg_color="transparent",
+            text_color=COLOR_ACCENT, hover_color=COLOR_SURFACE2, font=FONT_BOLD,
+            corner_radius=4, command=self.toggle
+        )
+        self.btn_toggle.pack(side="right", padx=(5, 0))
         
-        btn_search = customtkinter.CTkButton(top_frame, text="🔍 Buscar Álbum", width=120, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.search_album)
-        btn_search.pack(side="right")
+        self.btn_search = customtkinter.CTkButton(self.header, text="🔍 Buscar Álbum", width=120, height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=self.search_album)
+        self.btn_search.pack(side="right", padx=(0, 5))
         
         self.content_frame = customtkinter.CTkFrame(self, fg_color="transparent")
-        self.content_frame.pack(fill="both", expand=True)
-        
-        self.btn_toggle = btn_toggle
+        self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
         
         self.entries = {}
+        self.field_labels = []
         fields = [("Artista / Banda", "artist"), ("Álbum", "album"), ("Ano", "year"), ("Agulha/Cápsula", "cartridge"), ("Vinil (ex: 180g)", "vinyl_spec")]
         for label_text, key in fields:
             f = customtkinter.CTkFrame(self.content_frame, fg_color="transparent")
-            f.pack(fill="x", padx=15, pady=1)
-            customtkinter.CTkLabel(f, text=label_text, font=FONT_MAIN, text_color=COLOR_TEXT, width=150, anchor="e").pack(side="left", padx=(0, 10))
+            f.pack(fill="x", padx=15, pady=2)
+            lbl = customtkinter.CTkLabel(f, text=label_text, font=FONT_LABEL, text_color=COLOR_TEXT2, width=150, anchor="e")
+            lbl.pack(side="left", padx=(0, 10))
+            self.field_labels.append(lbl)
             
             if key == "cartridge":
-                ent = customtkinter.CTkComboBox(f, values=CARTRIDGES, fg_color=COLOR_BG, border_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, dropdown_font=FONT_MAIN, command=lambda v: None)
+                ent = customtkinter.CTkComboBox(f, values=CARTRIDGES, fg_color=COLOR_BG, border_color=COLOR_BORDER, text_color=COLOR_TEXT, font=FONT_MAIN, dropdown_font=FONT_MAIN, command=lambda v: None)
                 ent.set("")
                 ent.bind("<KeyRelease>", self._filter_cartridges)
             else:
-                ent = customtkinter.CTkEntry(f, fg_color=COLOR_BG, border_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN)
+                ent = customtkinter.CTkEntry(f, fg_color=COLOR_BG, border_color=COLOR_BORDER, text_color=COLOR_TEXT, font=FONT_MAIN)
             ent.pack(side="left", fill="x", expand=True)
             self.entries[key] = ent
 
+    def update_theme(self):
+        self.configure(fg_color=COLOR_SURFACE, border_color=COLOR_BORDER)
+        self.lbl_title.configure(text_color=COLOR_TEXT)
+        self.btn_toggle.configure(text_color=COLOR_ACCENT, hover_color=COLOR_SURFACE2)
+        self.btn_search.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        for ent in self.entries.values():
+            ent.configure(fg_color=COLOR_BG, border_color=COLOR_BORDER, text_color=COLOR_TEXT)
+        for lbl in self.field_labels:
+            lbl.configure(text_color=COLOR_TEXT2)
+
     def toggle(self):
         if self.is_collapsed:
-            self.content_frame.pack(fill="both", expand=True)
-            self.btn_toggle.configure(text="[-]")
+            self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
+            self.btn_toggle.configure(text="▼")
             self.is_collapsed = False
         else:
-            self.content_frame.pack_forget()
-            self.btn_toggle.configure(text="[+]")
+            self.content_frame.grid_remove()
+            self.btn_toggle.configure(text="▲")
             self.is_collapsed = True
+
+    def set_collapsed(self, collapse: bool):
+        if collapse and not self.is_collapsed:
+            self.content_frame.grid_remove()
+            self.btn_toggle.configure(text="▲")
+            self.is_collapsed = True
+        elif not collapse and self.is_collapsed:
+            self.content_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=(0, 10))
+            self.btn_toggle.configure(text="▼")
+            self.is_collapsed = False
 
     def _filter_cartridges(self, event):
         if event.keysym in ("Down", "Up", "Left", "Right", "Return", "Escape", "Tab"):
@@ -974,7 +1056,7 @@ class MetadataCard(customtkinter.CTkFrame):
 
 class CollapsibleFrame(customtkinter.CTkFrame):
     def __init__(self, master, title, **kwargs):
-        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color=COLOR_BORDER, **kwargs)
         self.is_collapsed = False
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
@@ -1002,6 +1084,21 @@ class CollapsibleFrame(customtkinter.CTkFrame):
             self.btn_toggle.configure(text="▲")
             self.is_collapsed = True
 
+    def set_collapsed(self, collapse: bool):
+        if collapse and not self.is_collapsed:
+            self.content_frame.grid_remove()
+            self.btn_toggle.configure(text="▲")
+            self.is_collapsed = True
+        elif not collapse and self.is_collapsed:
+            self.content_frame.grid(row=1, column=0, sticky="nsew")
+            self.btn_toggle.configure(text="▼")
+            self.is_collapsed = False
+
+    def update_theme(self):
+        self.configure(fg_color=COLOR_SURFACE, border_color=COLOR_BORDER)
+        self.lbl_title.configure(text_color=COLOR_TEXT)
+        self.btn_toggle.configure(text_color=COLOR_ACCENT, hover_color=COLOR_SURFACE2)
+
 class FileBrowser(customtkinter.CTkFrame):
     def __init__(self, master, app, **kwargs):
         super().__init__(master, fg_color="transparent", **kwargs)
@@ -1017,13 +1114,24 @@ class FileBrowser(customtkinter.CTkFrame):
             import os
             os.startfile(self.app.project_dir)
             
-        customtkinter.CTkButton(top, text="Abrir Pasta", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=open_explorer).pack(side="right", padx=(5,0))
-        customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.app._choose_folder).pack(side="right")
+        self.btn_open = customtkinter.CTkButton(top, text="Abrir Pasta", height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=open_explorer)
+        self.btn_open.pack(side="right", padx=(5,0))
+        self.btn_change = customtkinter.CTkButton(top, text="Alterar", width=60, height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=self.app._choose_folder)
+        self.btn_change.pack(side="right")
         
         self.scroll = customtkinter.CTkScrollableFrame(self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2)
         self.scroll.pack(fill="both", expand=True, pady=5)
         
-        customtkinter.CTkButton(self, text="+ Nova Pasta", height=24, fg_color=COLOR_SURFACE2, font=FONT_MAIN, command=self.new_folder).pack(fill="x")
+        self.btn_new = customtkinter.CTkButton(self, text="+ Nova Pasta", height=24, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN, command=self.new_folder)
+        self.btn_new.pack(fill="x")
+
+    def update_theme(self):
+        self.lbl_path.configure(text_color=COLOR_TEXT)
+        self.btn_open.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_change.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_new.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.scroll.configure(fg_color=COLOR_BG, border_color=COLOR_SURFACE2)
+        self.update_browser()
         
     def update_browser(self):
         self.lbl_path.configure(text=os.path.basename(self.app.project_dir) or self.app.project_dir)
@@ -1049,34 +1157,50 @@ class FileBrowser(customtkinter.CTkFrame):
 
 class VUPanel(customtkinter.CTkFrame):
     def __init__(self, master, title, knob_label, command, init_val, max_val, **kwargs):
-        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color=COLOR_BORDER, height=140, **kwargs)
+        self.pack_propagate(False)
         self.vu = AnalogVUMeter(self, label=title)
         self.vu.pack(side="left", padx=(10, 5), pady=10)
         self.knob = RotaryKnob(self, label=knob_label, command=command, init_val=init_val, max_val=max_val)
         self.knob.pack(side="left", padx=(5, 10), pady=10)
 
+    def update_theme(self):
+        self.configure(fg_color=COLOR_SURFACE, border_color=COLOR_BORDER)
+        self.vu.update_theme()
+        self.knob.update_theme()
+
 class EqualizerPanel(customtkinter.CTkFrame):
     def __init__(self, master, on_bass, on_mid, on_treble, **kwargs):
-        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        # Altura 140 idêntica aos VUPanels das laterais para simetria perfeita
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color=COLOR_BORDER, height=140, **kwargs)
+        self.pack_propagate(False)
         
-        lbl_title = customtkinter.CTkLabel(self, text="EQUALIZADOR", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_ACCENT)
-        lbl_title.pack(pady=(6, 2))
+        self.lbl_title = customtkinter.CTkLabel(self, text="EQUALIZADOR", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_ACCENT)
+        self.lbl_title.pack(pady=(8, 4))
         
         knobs_row = customtkinter.CTkFrame(self, fg_color="transparent")
-        knobs_row.pack(padx=8, pady=(0, 6))
+        knobs_row.pack(expand=True, padx=10, pady=(0, 8))
         
         self.knob_bass = RotaryKnob(knobs_row, label="GRAVE", command=on_bass, init_val=1.0, max_val=2.5)
-        self.knob_bass.pack(side="left", padx=4)
+        self.knob_bass.pack(side="left", padx=6)
         
         self.knob_mid = RotaryKnob(knobs_row, label="MÉDIO", command=on_mid, init_val=1.0, max_val=2.5)
-        self.knob_mid.pack(side="left", padx=4)
+        self.knob_mid.pack(side="left", padx=6)
         
         self.knob_treble = RotaryKnob(knobs_row, label="AGUDO", command=on_treble, init_val=1.0, max_val=2.5)
-        self.knob_treble.pack(side="left", padx=4)
+        self.knob_treble.pack(side="left", padx=6)
+
+    def update_theme(self):
+        self.configure(fg_color=COLOR_SURFACE, border_color=COLOR_BORDER)
+        self.lbl_title.configure(text_color=COLOR_ACCENT)
+        self.knob_bass.update_theme()
+        self.knob_mid.update_theme()
+        self.knob_treble.update_theme()
 
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
+        self.current_theme = CURRENT_THEME
         self.engine = AudioEngine()
         self.engine.on_time_update = self.on_time_update
         self.project_dir = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "MeuDisco")
@@ -1094,18 +1218,30 @@ class App(customtkinter.CTk):
         
 
     def _build_ui(self):
-        header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
-        header.pack(fill="x", pady=(0, 10))
+        self.header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
+        self.header.pack(fill="x", pady=(0, 10))
         
-        # Header com título e atalho para o painel de som do Windows
-        customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(side="left", padx=20, pady=10)
+        # Header com título e controles globais (Recolher Tudo e Tema Dia/Noite)
+        self.lbl_header_title = customtkinter.CTkLabel(self.header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT)
+        self.lbl_header_title.pack(side="left", padx=20, pady=10)
         
-        btn_snd_settings = customtkinter.CTkButton(
-            header, text="⚙️ Som do Windows", width=140, height=32, corner_radius=6,
-            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
-            command=self._open_windows_sound_settings
+        # Botão de Tema Dia/Noite no canto superior direito
+        self.btn_theme = customtkinter.CTkButton(
+            self.header, text="☀️ TEMA DIA", width=120, height=32, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
+            hover_color=COLOR_BORDER,
+            command=self.toggle_theme
         )
-        btn_snd_settings.pack(side="right", padx=15, pady=8)
+        self.btn_theme.pack(side="right", padx=15, pady=8)
+
+        # Botão para Minimizar / Maximizar todos os painéis juntos
+        self.btn_toggle_all = customtkinter.CTkButton(
+            self.header, text="⇕ RECOLHER TODOS", width=160, height=32, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD,
+            hover_color=COLOR_BORDER,
+            command=self.toggle_all_panels
+        )
+        self.btn_toggle_all.pack(side="right", padx=(0, 5), pady=8)
         
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
@@ -1115,27 +1251,40 @@ class App(customtkinter.CTk):
         top_row.columnconfigure(0, weight=1, uniform="a")
         top_row.columnconfigure(1, weight=1, uniform="a")
         
-        dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
-        dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        dev_content = dev_frame.content_frame
+        self.dev_frame = CollapsibleFrame(top_row, title="[ CONEXÕES DE ÁUDIO ]")
+        self.dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        dev_content = self.dev_frame.content_frame
         
-        # Rótulos informativos com indicação do Windows
+        # Rótulos informativos com fonte ampliada e legível
         f_in = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        f_in.pack(fill="x", padx=15, pady=(4, 1))
-        customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2).pack(side="left")
+        f_in.pack(fill="x", padx=15, pady=(6, 2))
+        self.lbl_in = customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=FONT_LABEL, text_color=COLOR_TEXT2)
+        self.lbl_in.pack(side="left")
         
         self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_in.pack(fill="x", padx=15, pady=(0, 6))
+        self.opt_in.pack(fill="x", padx=15, pady=(0, 8))
         
         f_out = customtkinter.CTkFrame(dev_content, fg_color="transparent")
-        f_out.pack(fill="x", padx=15, pady=(4, 1))
-        customtkinter.CTkLabel(f_out, text="Saída de Monitoramento (Fone/Caixas):", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2).pack(side="left")
+        f_out.pack(fill="x", padx=15, pady=(4, 2))
+        self.lbl_out = customtkinter.CTkLabel(f_out, text="Saída de Monitoramento (Fone/Caixas):", font=FONT_LABEL, text_color=COLOR_TEXT2)
+        self.lbl_out.pack(side="left")
         
         self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_out.pack(fill="x", padx=15, pady=(0, 6))
+        self.opt_out.pack(fill="x", padx=15, pady=(0, 8))
         
-        self.lbl_win_default = customtkinter.CTkLabel(dev_content, text="🖥️ Saída Padrão do Windows: Carregando...", font=(FONT_FAMILY, 9), text_color=COLOR_TEXT3)
-        self.lbl_win_default.pack(fill="x", padx=15, pady=(0, 5))
+        # Linha com indicador da saída padrão do Windows e botão dedicado
+        f_win = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_win.pack(fill="x", padx=15, pady=(4, 8))
+        
+        self.lbl_win_default = customtkinter.CTkLabel(f_win, text="🖥️ Saída Padrão do Windows: Carregando...", font=FONT_LABEL, text_color=COLOR_TEXT)
+        self.lbl_win_default.pack(side="left", fill="x", expand=True)
+        
+        self.btn_snd_settings = customtkinter.CTkButton(
+            f_win, text="⚙️ Som padrão do Windows", width=190, height=28, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_LABEL,
+            command=self._open_windows_sound_settings
+        )
+        self.btn_snd_settings.pack(side="right", padx=(10, 0))
         
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
         self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -1188,13 +1337,13 @@ class App(customtkinter.CTk):
         bottom_row.columnconfigure(0, weight=1, uniform="c")
         bottom_row.columnconfigure(1, weight=1, uniform="c")
         
-        rec_col = CollapsibleFrame(bottom_row, title="[ G R A V A D O R ]")
-        rec_col.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-        trans_frame = rec_col.content_frame
+        self.rec_col = CollapsibleFrame(bottom_row, title="[ G R A V A D O R ]")
+        self.rec_col.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+        trans_frame = self.rec_col.content_frame
         
-        browser_col = CollapsibleFrame(bottom_row, title="[ M E U   D I S C O ]")
-        browser_col.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-        self.browser = FileBrowser(browser_col.content_frame, app=self)
+        self.browser_col = CollapsibleFrame(bottom_row, title="[ M E U   D I S C O ]")
+        self.browser_col.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+        self.browser = FileBrowser(self.browser_col.content_frame, app=self)
         self.browser.pack(fill="both", expand=True, padx=15, pady=10)
         self.browser.update_browser()
         
@@ -1235,24 +1384,114 @@ class App(customtkinter.CTk):
         
         opt_grid1 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
         opt_grid1.pack(fill="x", pady=2)
-        customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        self.lbl_format = customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        self.lbl_format.pack(side="left")
         self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
         self.opt_format.pack(side="right")
         
         opt_grid2 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
         opt_grid2.pack(fill="x", pady=2)
-        customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2).pack(side="left")
+        self.lbl_export = customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        self.lbl_export.pack(side="left")
         self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80)
         self.opt_export.pack(side="right")
         
         self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
         self.btn_split.pack(fill="x", padx=15, pady=(5, 10))
         
-        status_bar = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=28, corner_radius=0)
-        status_bar.pack(fill="x", side="bottom")
-        self.lbl_status = customtkinter.CTkLabel(status_bar, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
+        self.status_bar = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=28, corner_radius=0)
+        self.status_bar.pack(fill="x", side="bottom")
+        self.lbl_status = customtkinter.CTkLabel(self.status_bar, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
         self.lbl_status.pack(side="left", padx=15, pady=3)
         
+        self.update_buttons_state()
+
+    def toggle_all_panels(self):
+        panels = [self.dev_frame, self.meta_card, self.rec_col, self.browser_col]
+        any_open = any(not p.is_collapsed for p in panels)
+        if any_open:
+            for p in panels:
+                p.set_collapsed(True)
+            self.btn_toggle_all.configure(text="⇕ EXPANDIR TODOS")
+        else:
+            for p in panels:
+                p.set_collapsed(False)
+            self.btn_toggle_all.configure(text="⇕ RECOLHER TODOS")
+
+    def toggle_theme(self):
+        global COLOR_BG, COLOR_SURFACE, COLOR_SURFACE2, COLOR_BORDER, COLOR_ACCENT
+        global COLOR_TEXT, COLOR_TEXT2, COLOR_TEXT3, COLOR_RED, COLOR_YELLOW, COLOR_GREEN, CURRENT_THEME
+        
+        self.current_theme = "light" if self.current_theme == "dark" else "dark"
+        CURRENT_THEME = self.current_theme
+        t = THEMES[self.current_theme]
+        
+        COLOR_BG       = t["bg"]
+        COLOR_SURFACE  = t["surface"]
+        COLOR_SURFACE2 = t["surface2"]
+        COLOR_BORDER   = t["border"]
+        COLOR_ACCENT   = t["accent"]
+        COLOR_TEXT     = t["text"]
+        COLOR_TEXT2    = t["text2"]
+        COLOR_TEXT3    = t["text3"]
+        COLOR_RED      = t["red"]
+        COLOR_YELLOW   = t["yellow"]
+        COLOR_GREEN    = t["green"]
+        
+        customtkinter.set_appearance_mode(t["ctk_mode"])
+        
+        if self.current_theme == "light":
+            self.btn_theme.configure(text="🌙 TEMA NOITE")
+        else:
+            self.btn_theme.configure(text="☀️ TEMA DIA")
+            
+        self.configure(fg_color=COLOR_BG)
+        self._apply_theme_colors()
+
+    def _apply_theme_colors(self):
+        self.header.configure(fg_color=COLOR_SURFACE)
+        self.lbl_header_title.configure(text_color=COLOR_ACCENT)
+        self.btn_theme.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, hover_color=COLOR_BORDER)
+        self.btn_toggle_all.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, hover_color=COLOR_BORDER)
+        
+        self.dev_frame.update_theme()
+        self.lbl_in.configure(text_color=COLOR_TEXT2)
+        self.lbl_out.configure(text_color=COLOR_TEXT2)
+        self.opt_in.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.opt_out.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.lbl_win_default.configure(text_color=COLOR_TEXT)
+        self.btn_snd_settings.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        
+        self.meta_card.update_theme()
+        
+        self.turntable.update_theme()
+        self.cover_front.update_theme()
+        self.cover_back.update_theme()
+        
+        self.panel_in.update_theme()
+        self.waveform.update_theme()
+        self.eq_panel.update_theme()
+        self.panel_out.update_theme()
+        
+        self.rec_col.update_theme()
+        self.chk_magic.configure(text_color=COLOR_TEXT)
+        if self.btn_pause.cget("state") == "disabled":
+            self.btn_pause.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        if self.btn_stop.cget("state") == "disabled":
+            self.btn_stop.configure(fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.chk_normalize.configure(text_color=COLOR_TEXT, fg_color=COLOR_ACCENT)
+        self.chk_denoise.configure(text_color=COLOR_TEXT, fg_color=COLOR_ACCENT)
+        self.chk_clipping.configure(text_color=COLOR_TEXT, fg_color=COLOR_ACCENT)
+        self.lbl_format.configure(text_color=COLOR_TEXT2)
+        self.lbl_export.configure(text_color=COLOR_TEXT2)
+        self.opt_format.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.opt_export.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.btn_split.configure(fg_color=COLOR_ACCENT)
+        
+        self.browser_col.update_theme()
+        self.browser.update_theme()
+        
+        self.status_bar.configure(fg_color=COLOR_SURFACE)
         self.update_buttons_state()
 
     def _on_input_gain(self, val): self.engine.input_gain = float(val)
