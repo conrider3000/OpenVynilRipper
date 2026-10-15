@@ -541,11 +541,12 @@ class VirtualTurntable(customtkinter.CTkFrame):
         self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda e: self.draw_vinyl())
-        self.canvas.bind("<Button-1>", self.open_camera)
+        self.canvas.bind("<Button-1>", self.show_image_options)
         self.canvas.bind("<Motion>", self.on_motion)
         self.canvas.bind("<Leave>", self.on_leave)
         
     def on_motion(self, event):
+        if getattr(self, 'camera_active', False): return
         w = self.canvas.winfo_width()
         h = self.canvas.winfo_height()
         cx, cy = w / 2, h / 2
@@ -558,99 +559,174 @@ class VirtualTurntable(customtkinter.CTkFrame):
             self.draw_vinyl()
             
     def on_leave(self, event):
+        if getattr(self, 'camera_active', False): return
         if self.hover_active:
             self.hover_active = False
             self.draw_vinyl()
-            
-    def open_camera(self, event=None):
+
+    def show_image_options(self, event=None):
         if event and not getattr(self, 'hover_active', False):
             return
-        if not self.app: return
-        import cv2, threading
-
-        from PIL import Image
-        if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
+        if getattr(self, 'camera_active', False):
             return
-            
-        self.cam_window = customtkinter.CTkToplevel(self)
-        self.cam_window.title("Tirar Foto do Rótulo Central")
-        self.cam_window.geometry("500x550")
-        self.cam_window.attributes("-topmost", True)
+        if not self.app:
+            return
+
+        dlg = customtkinter.CTkToplevel(self)
+        dlg.title("Imagem do Rótulo")
+        dlg.geometry("340x200")
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.configure(fg_color=COLOR_BG)
         
-        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="Ligando Câmera... Aguarde.", font=FONT_TITLE, text_color=COLOR_TEXT)
-        lbl_cam.pack(fill="both", expand=True)
-        
-        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR RÓTULO", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000", state="disabled")
-        btn_take.pack(pady=(10, 5))
-        
-        cap = [None]
-        self.taking_photo = False
-        
-        def init_camera():
-            c = cv2.VideoCapture(0)
-            if self.cam_window.winfo_exists():
-                cap[0] = c
-                lbl_cam.configure(text="")
-                btn_take.configure(state="normal")
-                update_cam()
-            else:
-                c.release()
-                
-        threading.Thread(target=init_camera, daemon=True).start()
-        
-        def load_from_pc():
-            from tkinter import filedialog
-            import shutil
-            path = filedialog.askopenfilename(title="Escolha a imagem", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
-            if path:
-                save_path = os.path.join(self.app.project_dir, "label.jpg")
-                try:
-                    img = Image.open(path).convert("RGB")
-                    w, h = img.size
-                    min_dim = min(h, w)
-                    sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
-                    img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
-                    img.save(save_path, quality=90)
-                except:
-                    shutil.copy(path, save_path)
-                
-                self.label_path = save_path
-                if cap[0]: cap[0].release()
-                if self.cam_window.winfo_exists():
-                    self.cam_window.destroy()
-                self.draw_vinyl()
-                
-        btn_pc = customtkinter.CTkButton(self.cam_window, text="📁 CARREGAR DO PC", height=40, font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=load_from_pc)
-        btn_pc.pack(pady=(0, 10))
-        
-        def update_cam():
-            if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
-                if cap[0]: cap[0].release()
-                return
-            if not cap[0]: return
-            ret, frame = cap[0].read()
-            if ret:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, _ = frame.shape
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 170
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 100
+            dlg.geometry(f"+{x}+{y}")
+        except:
+            pass
+
+        lbl = customtkinter.CTkLabel(dlg, text="Alterar Rótulo Central", font=FONT_TITLE, text_color=COLOR_ACCENT)
+        lbl.pack(pady=(18, 12))
+
+        def on_cam():
+            dlg.destroy()
+            self.start_in_place_camera()
+
+        def on_pc():
+            dlg.destroy()
+            self.load_from_pc()
+
+        btn_cam = customtkinter.CTkButton(
+            dlg, text="📸 Tirar Foto com a Câmera", height=36,
+            font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000",
+            hover_color=COLOR_BORDER, corner_radius=6, command=on_cam
+        )
+        btn_cam.pack(fill="x", padx=25, pady=4)
+
+        btn_pc = customtkinter.CTkButton(
+            dlg, text="📁 Carregar Imagem do PC", height=36,
+            font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER, corner_radius=6, command=on_pc
+        )
+        btn_pc.pack(fill="x", padx=25, pady=4)
+
+    def load_from_pc(self):
+        from tkinter import filedialog
+        import shutil
+        from PIL import Image
+        path = filedialog.askopenfilename(title="Escolha a imagem do rótulo", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
+        if path:
+            save_path = os.path.join(self.app.project_dir, "label.jpg")
+            try:
+                img = Image.open(path).convert("RGB")
+                w, h = img.size
                 min_dim = min(h, w)
                 sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
-                frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
-                img = Image.fromarray(frame_sq).resize((200, 200))
-                
-                if self.taking_photo:
-                    save_path = os.path.join(self.app.project_dir, "label.jpg")
-                    img.save(save_path, quality=90)
-                    cap[0].release()
-                    self.cam_window.destroy()
-                    self.label_path = save_path
-                    self.draw_vinyl()
-                    return
-                
-                ctk_img = customtkinter.CTkImage(light_image=img, size=(200, 200))
-                lbl_cam.configure(image=ctk_img)
-            self.after(30, update_cam)
-            
-        btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
+                img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
+                img.save(save_path, quality=92)
+            except:
+                shutil.copy(path, save_path)
+            self.label_path = save_path
+            self.draw_vinyl()
+
+    def start_in_place_camera(self):
+        if getattr(self, 'camera_active', False):
+            return
+        import cv2
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap or not self.cap.isOpened():
+            messagebox.showwarning("Câmera", "Não foi possível acessar a câmera do computador.")
+            if self.cap: self.cap.release()
+            self.cap = None
+            return
+
+        self.camera_active = True
+        self._latest_cam_frame = None
+
+        self.cam_controls = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=36, corner_radius=6)
+        self.cam_controls.place(relx=0.04, rely=0.82, relwidth=0.92, height=34)
+
+        self.btn_capture = customtkinter.CTkButton(
+            self.cam_controls, text="📸 CAPTURAR", height=26,
+            fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD,
+            command=self.capture_photo
+        )
+        self.btn_capture.pack(side="left", fill="x", expand=True, padx=(4, 2), pady=4)
+
+        self.btn_cancel_cam = customtkinter.CTkButton(
+            self.cam_controls, text="❌ CANCELAR", height=26,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.stop_in_place_camera
+        )
+        self.btn_cancel_cam.pack(side="left", fill="x", expand=True, padx=(2, 4), pady=4)
+
+        self._stream_camera()
+
+    def _stream_camera(self):
+        if not getattr(self, 'camera_active', False) or not self.cap:
+            return
+        import cv2
+        from PIL import Image, ImageTk, ImageDraw
+
+        ret, frame = self.cap.read()
+        if ret:
+            # Espelhamento horizontal para movimento natural
+            frame = cv2.flip(frame, 1)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, _ = frame.shape
+            min_dim = min(h, w)
+            sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+            frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
+            self._latest_cam_frame = Image.fromarray(frame_sq)
+
+            cw = self.canvas.winfo_width()
+            ch = self.canvas.winfo_height()
+            cx, cy = cw // 2, ch // 2
+            r = min(cw, ch) // 2 - 10
+            label_r = int(r * 0.7)
+
+            preview_img = self._latest_cam_frame.resize((label_r * 2, label_r * 2), Image.Resampling.BILINEAR)
+            mask = Image.new('L', (label_r * 2, label_r * 2), 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, label_r * 2, label_r * 2), fill=255)
+            preview_img.putalpha(mask)
+
+            self.tk_cam_img = ImageTk.PhotoImage(preview_img)
+            self.canvas.delete("all")
+            self.canvas.create_oval(cx-r, cy-r, cx+r, cy+r, fill="#111", outline="#333", width=2)
+            self.canvas.create_image(cx, cy, image=self.tk_cam_img)
+            self.canvas.create_oval(cx-label_r, cy-label_r, cx+label_r, cy+label_r, outline=COLOR_ACCENT, width=2)
+            self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=COLOR_BG, outline="")
+
+        self.after(30, self._stream_camera)
+
+    def capture_photo(self):
+        if hasattr(self, '_latest_cam_frame') and self._latest_cam_frame:
+            save_path = os.path.join(self.app.project_dir, "label.jpg")
+            try:
+                self._latest_cam_frame.save(save_path, quality=92)
+            except Exception as e:
+                print("Error saving label photo:", e)
+            self.stop_in_place_camera()
+            self.label_path = save_path
+            self.draw_vinyl()
+        else:
+            self.stop_in_place_camera()
+
+    def stop_in_place_camera(self):
+        self.camera_active = False
+        if hasattr(self, 'cap') and self.cap:
+            try:
+                self.cap.release()
+            except:
+                pass
+            self.cap = None
+        if hasattr(self, 'cam_controls') and self.cam_controls and self.cam_controls.winfo_exists():
+            self.cam_controls.destroy()
+            self.cam_controls = None
+        self._latest_cam_frame = None
+        self.draw_vinyl()
         
     def set_playing(self, playing: bool):
         self.is_playing = playing
@@ -723,7 +799,7 @@ class CoverDisplay(customtkinter.CTkFrame):
         
         self.canvas = customtkinter.CTkCanvas(self, bg=COLOR_BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=2, pady=2)
-        self.canvas.bind("<Button-1>", self.open_camera)
+        self.canvas.bind("<Button-1>", self.show_image_options)
         self.canvas.bind("<Enter>", self.on_hover)
         self.canvas.bind("<Leave>", self.on_leave)
         self.canvas.bind("<Configure>", lambda e: self.redraw())
@@ -733,14 +809,17 @@ class CoverDisplay(customtkinter.CTkFrame):
         self.redraw()
 
     def on_hover(self, event):
+        if getattr(self, 'camera_active', False): return
         self.hover_active = True
         self.redraw()
             
     def on_leave(self, event):
+        if getattr(self, 'camera_active', False): return
         self.hover_active = False
         self.redraw()
 
     def redraw(self):
+        if getattr(self, 'camera_active', False): return
         self.canvas.delete("all")
         w = self.canvas.winfo_width()
         h = self.canvas.winfo_height()
@@ -786,90 +865,159 @@ class CoverDisplay(customtkinter.CTkFrame):
         except Exception as e:
             print("Error loading cover image:", e)
 
-    def open_camera(self, event=None):
-        import cv2, threading
-        from PIL import Image, ImageTk
-        if hasattr(self, 'cam_window') and self.cam_window.winfo_exists():
+    def show_image_options(self, event=None):
+        if getattr(self, 'camera_active', False):
             return
-            
-        self.cam_window = customtkinter.CTkToplevel(self)
-        self.cam_window.title("Tirar Foto da Capa")
-        self.cam_window.geometry("500x550")
-        self.cam_window.attributes("-topmost", True)
+        if not self.app:
+            return
+
+        dlg = customtkinter.CTkToplevel(self)
+        dlg.title("Imagem da Capa")
+        dlg.geometry("340x200")
+        dlg.resizable(False, False)
+        dlg.attributes("-topmost", True)
+        dlg.configure(fg_color=COLOR_BG)
         
-        lbl_cam = customtkinter.CTkLabel(self.cam_window, text="Ligando Câmera... Aguarde.", font=FONT_TITLE, text_color=COLOR_TEXT)
-        lbl_cam.pack(fill="both", expand=True)
-        
-        btn_take = customtkinter.CTkButton(self.cam_window, text="📸 CAPTURAR CAPA", height=40, font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000", state="disabled")
-        btn_take.pack(pady=(10, 5))
-        
-        cap = [None]
-        self.taking_photo = False
-        
-        def init_camera():
-            c = cv2.VideoCapture(0)
-            if self.cam_window.winfo_exists():
-                cap[0] = c
-                lbl_cam.configure(text="")
-                btn_take.configure(state="normal")
-                update_cam()
-            else:
-                c.release()
-                
-        threading.Thread(target=init_camera, daemon=True).start()
-        
-        def load_from_pc():
-            from tkinter import filedialog
-            import shutil
-            path = filedialog.askopenfilename(title="Escolha a imagem da capa", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
-            if path:
-                save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
-                try:
-                    img = Image.open(path).convert("RGB")
-                    w, h = img.size
-                    min_dim = min(h, w)
-                    sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
-                    img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
-                    img.save(save_path, quality=90)
-                except:
-                    shutil.copy(path, save_path)
-                
-                if cap[0]: cap[0].release()
-                if self.cam_window.winfo_exists():
-                    self.cam_window.destroy()
-                self.load_cover(save_path)
-                
-        btn_pc = customtkinter.CTkButton(self.cam_window, text="📁 CARREGAR DO PC", height=40, font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=load_from_pc)
-        btn_pc.pack(pady=(0, 10))
-        
-        def update_cam():
-            if not hasattr(self, 'cam_window') or not self.cam_window.winfo_exists():
-                if cap[0]: cap[0].release()
-                return
-            if not cap[0]: return
-            ret, frame = cap[0].read()
-            if ret:
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                h, w, _ = frame.shape
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() // 2) - 170
+            y = self.winfo_rooty() + (self.winfo_height() // 2) - 100
+            dlg.geometry(f"+{x}+{y}")
+        except:
+            pass
+
+        lbl = customtkinter.CTkLabel(dlg, text=f"Alterar {self.title_text}", font=FONT_TITLE, text_color=COLOR_ACCENT)
+        lbl.pack(pady=(18, 12))
+
+        def on_cam():
+            dlg.destroy()
+            self.start_in_place_camera()
+
+        def on_pc():
+            dlg.destroy()
+            self.load_from_pc()
+
+        btn_cam = customtkinter.CTkButton(
+            dlg, text="📸 Tirar Foto com a Câmera", height=36,
+            font=FONT_BOLD, fg_color=COLOR_ACCENT, text_color="#000",
+            hover_color=COLOR_BORDER, corner_radius=6, command=on_cam
+        )
+        btn_cam.pack(fill="x", padx=25, pady=4)
+
+        btn_pc = customtkinter.CTkButton(
+            dlg, text="📁 Carregar Imagem do PC", height=36,
+            font=FONT_BOLD, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT,
+            hover_color=COLOR_BORDER, corner_radius=6, command=on_pc
+        )
+        btn_pc.pack(fill="x", padx=25, pady=4)
+
+    def load_from_pc(self):
+        from tkinter import filedialog
+        import shutil
+        from PIL import Image
+        path = filedialog.askopenfilename(title=f"Escolha a imagem para {self.title_text}", filetypes=[("Imagens", "*.jpg *.jpeg *.png")])
+        if path:
+            save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
+            try:
+                img = Image.open(path).convert("RGB")
+                w, h = img.size
                 min_dim = min(h, w)
                 sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
-                frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
-                img = Image.fromarray(frame_sq).resize((400, 400))
-                
-                if self.taking_photo:
-                    save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
-                    img.save(save_path, quality=90)
-                    cap[0].release()
-                    self.cam_window.destroy()
-                    self.load_cover(save_path)
-                    return
-                
-                ctk_img = customtkinter.CTkImage(light_image=img, size=(400, 400))
-                lbl_cam.configure(image=ctk_img)
-            self.after(30, update_cam)
-            
-        btn_take.configure(command=lambda: setattr(self, 'taking_photo', True))
-        
+                img = img.crop((sx, sy, sx+min_dim, sy+min_dim))
+                img.save(save_path, quality=92)
+            except:
+                shutil.copy(path, save_path)
+            self.load_cover(save_path)
+
+    def start_in_place_camera(self):
+        if getattr(self, 'camera_active', False):
+            return
+        import cv2
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap or not self.cap.isOpened():
+            messagebox.showwarning("Câmera", "Não foi possível acessar a câmera do computador.")
+            if self.cap: self.cap.release()
+            self.cap = None
+            return
+
+        self.camera_active = True
+        self._latest_cam_frame = None
+
+        self.cam_controls = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=36, corner_radius=6)
+        self.cam_controls.place(relx=0.04, rely=0.82, relwidth=0.92, height=34)
+
+        self.btn_capture = customtkinter.CTkButton(
+            self.cam_controls, text="📸 CAPTURAR", height=26,
+            fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD,
+            command=self.capture_photo
+        )
+        self.btn_capture.pack(side="left", fill="x", expand=True, padx=(4, 2), pady=4)
+
+        self.btn_cancel_cam = customtkinter.CTkButton(
+            self.cam_controls, text="❌ CANCELAR", height=26,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self.stop_in_place_camera
+        )
+        self.btn_cancel_cam.pack(side="left", fill="x", expand=True, padx=(2, 4), pady=4)
+
+        self._stream_camera()
+
+    def _stream_camera(self):
+        if not getattr(self, 'camera_active', False) or not self.cap:
+            return
+        import cv2
+        from PIL import Image, ImageTk
+
+        ret, frame = self.cap.read()
+        if ret:
+            # Espelhamento horizontal para movimento natural
+            frame = cv2.flip(frame, 1)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, _ = frame.shape
+            min_dim = min(h, w)
+            sx, sy = (w - min_dim) // 2, (h - min_dim) // 2
+            frame_sq = frame[sy:sy+min_dim, sx:sx+min_dim]
+            self._latest_cam_frame = Image.fromarray(frame_sq)
+
+            cw = self.canvas.winfo_width()
+            ch = self.canvas.winfo_height()
+            dim = max(10, min(cw, ch) - 10)
+            cx, cy = cw // 2, ch // 2
+
+            preview_img = self._latest_cam_frame.resize((dim, dim), Image.Resampling.BILINEAR)
+            self.tk_cam_img = ImageTk.PhotoImage(preview_img)
+
+            self.canvas.delete("all")
+            self.canvas.create_image(cx, cy, image=self.tk_cam_img)
+            self.canvas.create_rectangle(cx - dim//2, cy - dim//2, cx + dim//2, cy + dim//2, outline=COLOR_ACCENT, width=2)
+
+        self.after(30, self._stream_camera)
+
+    def capture_photo(self):
+        if hasattr(self, '_latest_cam_frame') and self._latest_cam_frame:
+            save_path = os.path.join(self.app.project_dir, f"{'cover' if 'Frontal' in self.title_text else 'back'}.jpg")
+            try:
+                self._latest_cam_frame.save(save_path, quality=92)
+            except Exception as e:
+                print("Error saving captured photo:", e)
+            self.stop_in_place_camera()
+            self.load_cover(save_path)
+        else:
+            self.stop_in_place_camera()
+
+    def stop_in_place_camera(self):
+        self.camera_active = False
+        if hasattr(self, 'cap') and self.cap:
+            try:
+                self.cap.release()
+            except:
+                pass
+            self.cap = None
+        if hasattr(self, 'cam_controls') and self.cam_controls and self.cam_controls.winfo_exists():
+            self.cam_controls.destroy()
+            self.cam_controls = None
+        self._latest_cam_frame = None
+        self.redraw()
+
     def flip_cover(self):
         pass
 
@@ -1168,9 +1316,9 @@ class FileBrowser(customtkinter.CTkFrame):
         )
         self.btn_new.pack(side="right")
         
-        # Lista com scroll fixo compacto (95px)
+        # Lista com scroll fixo compacto (78px) para casar perfeitamente com a altura do Gravador
         self.scroll = customtkinter.CTkScrollableFrame(
-            self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2, height=95
+            self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2, height=78
         )
         self.scroll.pack(fill="both", expand=True, pady=(2, 0))
 
@@ -1370,60 +1518,109 @@ class App(customtkinter.CTk):
         self.browser_col = CollapsibleFrame(bottom_row, title="[ M E U   D I S C O ]")
         self.browser_col.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         self.browser = FileBrowser(self.browser_col.content_frame, app=self)
-        self.browser.pack(fill="both", expand=True, padx=10, pady=5)
+        self.browser.pack(fill="x", expand=False, padx=10, pady=(2, 2))
         self.browser.update_browser()
         
         # Recorder UI
-        t_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_top.pack(fill="x", padx=10, pady=(2, 2))
+        # 1. Seção Superior: Opções de Gravação
+        f_rec_top = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        f_rec_top.pack(fill="x", padx=10, pady=(2, 2))
         
-        self.chk_magic = customtkinter.CTkSwitch(t_top, text="✨ Magic Record (Início Automático)", fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_BOLD)
-        self.chk_magic.pack(pady=(0, 4))
+        self.chk_magic = customtkinter.CTkSwitch(
+            f_rec_top, text="✨ Magic Record (Início Auto)", 
+            fg_color="#8a2be2", text_color=COLOR_TEXT, font=FONT_BOLD
+        )
+        self.chk_magic.pack(side="left", padx=(0, 15))
         
-        r_btns = customtkinter.CTkFrame(t_top, fg_color="transparent")
-        r_btns.pack(fill="x")
-        self.lbl_timer = customtkinter.CTkLabel(r_btns, text="00:00.00", font=(FONT_FAMILY, 26, "bold"), text_color=COLOR_RED)
-        self.lbl_timer.pack(side="left", padx=(0, 10))
-        self.btn_rec_a = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoA"))
-        self.btn_rec_a.pack(side="left", padx=(0, 4), expand=True, fill="x")
-        self.btn_rec_b = customtkinter.CTkButton(r_btns, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF", font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoB"))
-        self.btn_rec_b.pack(side="left", padx=4, expand=True, fill="x")
-        self.btn_pause = customtkinter.CTkButton(r_btns, text="⏸ PAUSE", width=75, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_pause_click)
-        self.btn_pause.pack(side="left", padx=4)
-        self.btn_stop = customtkinter.CTkButton(r_btns, text="■ STOP", width=75, fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_stop_click)
-        self.btn_stop.pack(side="left", padx=(4, 0))
+        self.chk_clipping = customtkinter.CTkSwitch(
+            f_rec_top, text="Remover Clippings", 
+            fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN
+        )
+        self.chk_clipping.pack(side="left")
         
-        t_mid = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        t_mid.pack(fill="x", padx=10, pady=(2, 2))
-        
-        sw_f = customtkinter.CTkFrame(t_mid, fg_color="transparent")
-        sw_f.pack(side="left", fill="y", padx=(0, 10))
-        self.chk_normalize = customtkinter.CTkSwitch(sw_f, text="Normalizar Volume", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_normalize.pack(anchor="w", pady=2)
-        self.chk_denoise = customtkinter.CTkSwitch(sw_f, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_denoise.pack(anchor="w", pady=2)
-        self.chk_clipping = customtkinter.CTkSwitch(sw_f, text="Remover Clippings", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN)
-        self.chk_clipping.pack(anchor="w", pady=2)
-        
-        f_opts = customtkinter.CTkFrame(t_mid, fg_color="transparent")
-        f_opts.pack(side="left", fill="y", expand=True)
-        
-        opt_grid1 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
-        opt_grid1.pack(fill="x", pady=1)
-        self.lbl_format = customtkinter.CTkLabel(opt_grid1, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2)
-        self.lbl_format.pack(side="left")
-        self.opt_format = customtkinter.CTkOptionMenu(opt_grid1, values=["WAV", "FLAC", "MP3", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24)
+        f_rec_fmt = customtkinter.CTkFrame(f_rec_top, fg_color="transparent")
+        f_rec_fmt.pack(side="right")
+        self.lbl_format = customtkinter.CTkLabel(f_rec_fmt, text="Salvar original em:", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        self.lbl_format.pack(side="left", padx=(0, 6))
+        self.opt_format = customtkinter.CTkOptionMenu(
+            f_rec_fmt, values=["WAV", "FLAC", "MP3", "OGG"], 
+            fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24
+        )
         self.opt_format.pack(side="right")
+
+        # 2. Seção Central: Ações de Gravação e Timer (Timer alinhado acima de pause/stop)
+        f_rec_action = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        f_rec_action.pack(fill="x", padx=10, pady=(2, 2))
         
-        opt_grid2 = customtkinter.CTkFrame(f_opts, fg_color="transparent")
-        opt_grid2.pack(fill="x", pady=1)
-        self.lbl_export = customtkinter.CTkLabel(opt_grid2, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2)
-        self.lbl_export.pack(side="left")
-        self.opt_export = customtkinter.CTkOptionMenu(opt_grid2, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24)
+        f_timer_row = customtkinter.CTkFrame(f_rec_action, fg_color="transparent")
+        f_timer_row.pack(fill="x", pady=(0, 2))
+        
+        self.lbl_rec_title = customtkinter.CTkLabel(
+            f_timer_row, text="● ESTÚDIO DE GRAVAÇÃO", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2
+        )
+        self.lbl_rec_title.pack(side="left")
+        
+        self.lbl_timer = customtkinter.CTkLabel(
+            f_timer_row, text="00:00.00", font=(FONT_FAMILY, 18, "bold"), text_color=COLOR_RED
+        )
+        self.lbl_timer.pack(side="right", padx=(0, 6))
+        
+        f_btns_row = customtkinter.CTkFrame(f_rec_action, fg_color="transparent")
+        f_btns_row.pack(fill="x")
+        f_btns_row.columnconfigure(0, weight=1, uniform="rb")
+        f_btns_row.columnconfigure(1, weight=1, uniform="rb")
+        f_btns_row.columnconfigure(2, weight=1, uniform="rb")
+        f_btns_row.columnconfigure(3, weight=1, uniform="rb")
+        
+        self.btn_rec_a = customtkinter.CTkButton(
+            f_btns_row, text="● GRAVAR LADO A", fg_color=COLOR_RED, text_color="#FFF",
+            font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoA")
+        )
+        self.btn_rec_a.grid(row=0, column=0, sticky="ew", padx=(0, 3))
+        
+        self.btn_rec_b = customtkinter.CTkButton(
+            f_btns_row, text="● GRAVAR LADO B", fg_color=COLOR_RED, text_color="#FFF",
+            font=FONT_BOLD, height=32, corner_radius=6, command=lambda: self.on_rec_side("LadoB")
+        )
+        self.btn_rec_b.grid(row=0, column=1, sticky="ew", padx=3)
+        
+        self.btn_pause = customtkinter.CTkButton(
+            f_btns_row, text="⏸ PAUSE", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT,
+            font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_pause_click
+        )
+        self.btn_pause.grid(row=0, column=2, sticky="ew", padx=3)
+        
+        self.btn_stop = customtkinter.CTkButton(
+            f_btns_row, text="■ STOP", fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT,
+            font=FONT_BOLD, height=32, corner_radius=6, state="disabled", command=self.on_stop_click
+        )
+        self.btn_stop.grid(row=0, column=3, sticky="ew", padx=(3, 0))
+
+        # 3. Seção Inferior: Opções de Exportação e Botões de Exportação
+        f_exp_opts = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
+        f_exp_opts.pack(fill="x", padx=10, pady=(4, 2))
+        
+        self.chk_normalize = customtkinter.CTkSwitch(
+            f_exp_opts, text="Normalizar Volume", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN
+        )
+        self.chk_normalize.pack(side="left", padx=(0, 15))
+        
+        self.chk_denoise = customtkinter.CTkSwitch(
+            f_exp_opts, text="Filtro Anti-Chiado", fg_color=COLOR_ACCENT, text_color=COLOR_TEXT, font=FONT_MAIN
+        )
+        self.chk_denoise.pack(side="left")
+        
+        f_exp_fmt = customtkinter.CTkFrame(f_exp_opts, fg_color="transparent")
+        f_exp_fmt.pack(side="right")
+        self.lbl_export = customtkinter.CTkLabel(f_exp_fmt, text="Formato exportação:", font=FONT_BOLD, text_color=COLOR_TEXT2)
+        self.lbl_export.pack(side="left", padx=(0, 6))
+        self.opt_export = customtkinter.CTkOptionMenu(
+            f_exp_fmt, values=["MP3", "FLAC", "WAV", "OGG"], fg_color=COLOR_BG, button_color=COLOR_SURFACE2, font=FONT_MAIN, dropdown_font=FONT_MAIN, width=80, height=24
+        )
         self.opt_export.pack(side="right")
         
         f_export_btns = customtkinter.CTkFrame(trans_frame, fg_color="transparent")
-        f_export_btns.pack(fill="x", padx=10, pady=(4, 2))
+        f_export_btns.pack(fill="x", padx=10, pady=(2, 2))
         
         self.btn_export = customtkinter.CTkButton(
             f_export_btns, text="💾 EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000",
@@ -1637,6 +1834,7 @@ class App(customtkinter.CTk):
         self.lbl_export.configure(text_color=COLOR_TEXT2)
         self.opt_format.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
         self.opt_export.configure(fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT)
+        self.lbl_rec_title.configure(text_color=COLOR_TEXT2)
         self.btn_export.configure(fg_color=COLOR_ACCENT)
         self.btn_split.configure(fg_color=COLOR_ACCENT)
         
@@ -1668,15 +1866,17 @@ class App(customtkinter.CTk):
     
     def update_buttons_state(self):
         import os
-        if os.path.exists(os.path.join(self.project_dir, "LadoA.wav")):
-            self.btn_rec_a.configure(text="● REGRAVAR LADO A", fg_color=COLOR_GREEN)
-        else:
-            self.btn_rec_a.configure(text="● GRAVAR LADO A", fg_color=COLOR_RED)
-            
-        if os.path.exists(os.path.join(self.project_dir, "LadoB.wav")):
-            self.btn_rec_b.configure(text="● REGRAVAR LADO B", fg_color=COLOR_GREEN)
-        else:
-            self.btn_rec_b.configure(text="● GRAVAR LADO B", fg_color=COLOR_RED)
+        lado_a_exists = os.path.exists(os.path.join(self.project_dir, "LadoA.wav"))
+        lado_b_exists = os.path.exists(os.path.join(self.project_dir, "LadoB.wav"))
+        
+        self.btn_rec_a.configure(
+            text="● REGRAVAR LADO A" if lado_a_exists else "● GRAVAR LADO A",
+            fg_color=COLOR_RED, text_color="#FFF"
+        )
+        self.btn_rec_b.configure(
+            text="● REGRAVAR LADO B" if lado_b_exists else "● GRAVAR LADO B",
+            fg_color=COLOR_RED, text_color="#FFF"
+        )
 
     def _init_devices(self):
         devs = self.engine.get_devices()
@@ -2012,6 +2212,12 @@ class App(customtkinter.CTk):
             
         import os
         try:
+            if hasattr(self, 'cover_front') and getattr(self.cover_front, 'camera_active', False):
+                self.cover_front.stop_in_place_camera()
+            if hasattr(self, 'cover_back') and getattr(self.cover_back, 'camera_active', False):
+                self.cover_back.stop_in_place_camera()
+            if hasattr(self, 'turntable') and getattr(self.turntable, 'camera_active', False):
+                self.turntable.stop_in_place_camera()
             self.engine.stop_stream()
         except:
             pass
