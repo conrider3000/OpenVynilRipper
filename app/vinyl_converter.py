@@ -54,6 +54,37 @@ class AudioEngine:
         self.passthrough_mode = False
         self.passthrough_running = False
         self.passthrough_thread = None
+        
+        # Equalizador de 3 Bandas (Grave, Médio, Agudo) - neutro = 1.0 (0dB)
+        self.eq_bass = 1.0
+        self.eq_mid = 1.0
+        self.eq_treble = 1.0
+        self._precompute_eq_filters()
+
+    def _precompute_eq_filters(self):
+        freqs = np.fft.rfftfreq(self.blocksize, 1.0 / self.sample_rate)
+        # Curvas com transições suaves (filtros analógicos gaussianos)
+        self._bass_mask = np.exp(-0.5 * (freqs / 250.0)**2)
+        self._treble_mask = 1.0 - np.exp(-0.5 * (freqs / 3500.0)**2)
+        self._mid_mask = np.maximum(0.0, 1.0 - self._bass_mask - self._treble_mask)
+
+    def apply_eq(self, data):
+        # Se todos estiverem flat (1.0), pula processamento para zero overhead
+        if abs(self.eq_bass - 1.0) < 0.02 and abs(self.eq_mid - 1.0) < 0.02 and abs(self.eq_treble - 1.0) < 0.02:
+            return data
+            
+        if len(data) != self.blocksize:
+            freqs = np.fft.rfftfreq(len(data), 1.0 / self.sample_rate)
+            b_mask = np.exp(-0.5 * (freqs / 250.0)**2)
+            t_mask = 1.0 - np.exp(-0.5 * (freqs / 3500.0)**2)
+            m_mask = np.maximum(0.0, 1.0 - b_mask - t_mask)
+            eq_curve = (self.eq_bass * b_mask + self.eq_mid * m_mask + self.eq_treble * t_mask)[:, np.newaxis]
+        else:
+            eq_curve = (self.eq_bass * self._bass_mask + self.eq_mid * self._mid_mask + self.eq_treble * self._treble_mask)[:, np.newaxis]
+
+        spec = np.fft.rfft(data, axis=0)
+        spec *= eq_curve
+        return np.fft.irfft(spec, axis=0).astype(np.float32)
 
     def get_devices(self) -> dict:
         try:
@@ -158,7 +189,8 @@ class AudioEngine:
                     elif data.shape[1] == 1:
                         data = np.column_stack((data, data))
 
-                    # Aplica ganhos dos knobs
+                    # Aplica equalização (Grave, Médio, Agudo) e ganhos dos knobs
+                    data = self.apply_eq(data)
                     data = data * self.input_gain * self.monitor_volume
                     c_data = np.ascontiguousarray(data, dtype=np.float32)
                     out_stream.write(c_data)
@@ -189,7 +221,9 @@ class AudioEngine:
             return
             
         indata = indata * self.input_gain
-        outdata[:] = indata * self.monitor_volume
+        # Aplica equalização no monitor das caixas/fones
+        processed_monitor = self.apply_eq(indata) * self.monitor_volume
+        outdata[:] = processed_monitor
         
         amplitude_chunk = float(np.max(np.abs(indata)))
         if getattr(self, 'magic_wait', False) and amplitude_chunk > 0.02:
@@ -1021,6 +1055,25 @@ class VUPanel(customtkinter.CTkFrame):
         self.knob = RotaryKnob(self, label=knob_label, command=command, init_val=init_val, max_val=max_val)
         self.knob.pack(side="left", padx=(5, 10), pady=10)
 
+class EqualizerPanel(customtkinter.CTkFrame):
+    def __init__(self, master, on_bass, on_mid, on_treble, **kwargs):
+        super().__init__(master, fg_color=COLOR_SURFACE, corner_radius=8, border_width=2, border_color="#333", **kwargs)
+        
+        lbl_title = customtkinter.CTkLabel(self, text="EQUALIZADOR", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_ACCENT)
+        lbl_title.pack(pady=(6, 2))
+        
+        knobs_row = customtkinter.CTkFrame(self, fg_color="transparent")
+        knobs_row.pack(padx=8, pady=(0, 6))
+        
+        self.knob_bass = RotaryKnob(knobs_row, label="GRAVE", command=on_bass, init_val=1.0, max_val=2.5)
+        self.knob_bass.pack(side="left", padx=4)
+        
+        self.knob_mid = RotaryKnob(knobs_row, label="MÉDIO", command=on_mid, init_val=1.0, max_val=2.5)
+        self.knob_mid.pack(side="left", padx=4)
+        
+        self.knob_treble = RotaryKnob(knobs_row, label="AGUDO", command=on_treble, init_val=1.0, max_val=2.5)
+        self.knob_treble.pack(side="left", padx=4)
+
 class App(customtkinter.CTk):
     def __init__(self):
         super().__init__()
@@ -1127,6 +1180,10 @@ class App(customtkinter.CTk):
         self.waveform = RetroWaveform(vis_frame)
         self.waveform.pack(side="left", expand=True, fill="both", padx=5)
         
+        # Equalizador de 3 bandas (Grave, Médio, Agudo)
+        self.eq_panel = EqualizerPanel(vis_frame, on_bass=self._on_eq_bass, on_mid=self._on_eq_mid, on_treble=self._on_eq_treble)
+        self.eq_panel.pack(side="left", padx=5)
+        
         # panel_out (right side) -> MONITOR VU & MONITOR GAIN
         self.panel_out = VUPanel(vis_frame, title="MONITOR VU", knob_label="GAIN", command=self._on_monitor_gain, init_val=1.0, max_val=2.0)
         self.panel_out.pack(side="right", padx=(5, 0))
@@ -1206,6 +1263,9 @@ class App(customtkinter.CTk):
 
     def _on_input_gain(self, val): self.engine.input_gain = float(val)
     def _on_monitor_gain(self, val): self.engine.monitor_volume = float(val)
+    def _on_eq_bass(self, val): self.engine.eq_bass = float(val)
+    def _on_eq_mid(self, val): self.engine.eq_mid = float(val)
+    def _on_eq_treble(self, val): self.engine.eq_treble = float(val)
     
     def update_buttons_state(self):
         import os
