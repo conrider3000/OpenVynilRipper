@@ -1097,34 +1097,15 @@ class App(customtkinter.CTk):
         header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
         header.pack(fill="x", pady=(0, 10))
         
-        # Título à esquerda
+        # Header com título e atalho para o painel de som do Windows
         customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(side="left", padx=20, pady=10)
         
-        # Botões de Modo no centro / direita
-        mode_frame = customtkinter.CTkFrame(header, fg_color=COLOR_BG, corner_radius=8, border_width=1, border_color="#333")
-        mode_frame.pack(side="right", padx=15, pady=8)
-        
-        self.btn_mode_vinyl = customtkinter.CTkButton(
-            mode_frame, text="📻 MODO VINIL", width=120, height=32, corner_radius=6,
-            fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD,
-            command=lambda: self._set_mode("VINYL")
-        )
-        self.btn_mode_vinyl.pack(side="left", padx=3, pady=3)
-        
-        self.btn_mode_pc = customtkinter.CTkButton(
-            mode_frame, text="🔊 SOM DO PC P/ CAIXAS", width=180, height=32, corner_radius=6,
-            fg_color="transparent", text_color=COLOR_TEXT, font=FONT_BOLD,
-            hover_color=COLOR_SURFACE2,
-            command=lambda: self._set_mode("PC")
-        )
-        self.btn_mode_pc.pack(side="left", padx=3, pady=3)
-        
         btn_snd_settings = customtkinter.CTkButton(
-            header, text="⚙️ Som do Windows", width=130, height=32, corner_radius=6,
+            header, text="⚙️ Som do Windows", width=140, height=32, corner_radius=6,
             fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
             command=self._open_windows_sound_settings
         )
-        btn_snd_settings.pack(side="right", padx=(0, 10), pady=8)
+        btn_snd_settings.pack(side="right", padx=15, pady=8)
         
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
@@ -1138,10 +1119,23 @@ class App(customtkinter.CTk):
         dev_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         dev_content = dev_frame.content_frame
         
+        # Rótulos informativos com indicação do Windows
+        f_in = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_in.pack(fill="x", padx=15, pady=(4, 1))
+        customtkinter.CTkLabel(f_in, text="Entrada de Gravação (Vinil):", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2).pack(side="left")
+        
         self.opt_in = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_in.pack(fill="x", padx=15, pady=5)
+        self.opt_in.pack(fill="x", padx=15, pady=(0, 6))
+        
+        f_out = customtkinter.CTkFrame(dev_content, fg_color="transparent")
+        f_out.pack(fill="x", padx=15, pady=(4, 1))
+        customtkinter.CTkLabel(f_out, text="Saída de Monitoramento (Fone/Caixas):", font=(FONT_FAMILY, 10, "bold"), text_color=COLOR_TEXT2).pack(side="left")
+        
         self.opt_out = customtkinter.CTkOptionMenu(dev_content, values=["Nenhum"], font=FONT_MAIN, dropdown_font=FONT_MAIN, fg_color=COLOR_BG, button_color=COLOR_SURFACE2, text_color=COLOR_TEXT, command=self._on_device_change)
-        self.opt_out.pack(fill="x", padx=15, pady=5)
+        self.opt_out.pack(fill="x", padx=15, pady=(0, 6))
+        
+        self.lbl_win_default = customtkinter.CTkLabel(dev_content, text="🖥️ Saída Padrão do Windows: Carregando...", font=(FONT_FAMILY, 9), text_color=COLOR_TEXT3)
+        self.lbl_win_default.pack(fill="x", padx=15, pady=(0, 5))
         
         self.meta_card = MetadataCard(top_row, on_album_found=self._fetch_cover_art)
         self.meta_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -1288,11 +1282,18 @@ class App(customtkinter.CTk):
             self.opt_in.set(next((n for n in self.in_map.keys() if "ION" in n.upper() or "USB" in n.upper()), list(self.in_map.keys())[0]))
         if self.out_map:
             self.opt_out.configure(values=list(self.out_map.keys()))
-            # Se encontrar o Toca-Discos ION como saída (caixas), prioriza ele para as caixas, senão Synaptics/Padrão
-            preferred_out = next((n for n in self.out_map.keys() if "ION" in n.upper() or "USB" in n.upper()), None)
-            if not preferred_out:
-                preferred_out = next((n for n in self.out_map.keys() if "SYNAPTICS" in n.upper() or "REALTEK" in n.upper()), list(self.out_map.keys())[0])
+            preferred_out = next((n for n in self.out_map.keys() if "SYNAPTICS" in n.upper() or "REALTEK" in n.upper() or "PADRÃO" in n.upper()), list(self.out_map.keys())[0])
             self.opt_out.set(preferred_out)
+            
+        # Detecta e mostra o dispositivo de saída padrão atual do Windows
+        try:
+            def_out_idx = sd.default.device[1]
+            all_devs = sd.query_devices()
+            def_name = all_devs[def_out_idx]['name'] if 0 <= def_out_idx < len(all_devs) else "Desconhecido"
+            self.lbl_win_default.configure(text=f"🖥️ Saída Padrão do Windows: {def_name}")
+        except:
+            self.lbl_win_default.configure(text="🖥️ Saída Padrão do Windows: Áudio Padrão do Sistema")
+
         self._start_stream()
 
     def _open_windows_sound_settings(self):
@@ -1304,37 +1305,6 @@ class App(customtkinter.CTk):
                 subprocess.Popen("control mmsys.cpl", shell=True)
             except Exception as e:
                 print("Error opening sound settings:", e)
-
-    def _set_mode(self, mode):
-        if mode == "VINYL":
-            self.engine.passthrough_mode = False
-            self.btn_mode_vinyl.configure(fg_color=COLOR_ACCENT, text_color="#000")
-            self.btn_mode_pc.configure(fg_color="transparent", text_color=COLOR_TEXT)
-            self.btn_rec_a.configure(state="normal")
-            self.btn_rec_b.configure(state="normal")
-            self.chk_magic.configure(state="normal")
-            if hasattr(self, 'lbl_status'):
-                self.lbl_status.configure(text="MODO VINIL ATIVO (GRAVAÇÃO)", text_color=COLOR_GREEN)
-        else: # "PC"
-            self.engine.passthrough_mode = True
-            self.btn_mode_pc.configure(fg_color=COLOR_ACCENT, text_color="#000")
-            self.btn_mode_vinyl.configure(fg_color="transparent", text_color=COLOR_TEXT)
-            # No modo som do PC para caixas, desabilita botões de gravação para não gravar sem querer
-            if self.engine.recording:
-                self.on_stop_click()
-            self.btn_rec_a.configure(state="disabled")
-            self.btn_rec_b.configure(state="disabled")
-            self.chk_magic.configure(state="disabled")
-            if hasattr(self, 'lbl_status'):
-                self.lbl_status.configure(text="MODO SOM DO PC ATIVO -> ENVIANDO P/ CAIXAS DO TOCA-DISCOS", text_color=COLOR_YELLOW)
-            
-            # Garante que a saída selecionada seja o Toca-Discos (onde estão as caixas)
-            ion_out = next((n for n in self.out_map.keys() if "ION" in n.upper() or "USB" in n.upper()), None)
-            if ion_out and self.opt_out.get() != ion_out:
-                self.opt_out.set(ion_out)
-
-        self.engine.stop_stream()
-        self._start_stream()
 
     def set_project_dir(self, new_dir):
         self.project_dir = new_dir
