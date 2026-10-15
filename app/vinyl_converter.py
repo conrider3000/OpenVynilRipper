@@ -1316,11 +1316,13 @@ class FileBrowser(customtkinter.CTkFrame):
         )
         self.btn_new.pack(side="right")
         
-        # Lista com scroll fixo compacto (78px) para casar perfeitamente com a altura do Gravador
+        # Lista com scroll fixo compacto (102px) para casar perfeitamente com a altura do Gravador (226px)
         self.scroll = customtkinter.CTkScrollableFrame(
-            self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2, height=78
+            self, fg_color=COLOR_BG, border_width=1, border_color=COLOR_SURFACE2, height=102
         )
         self.scroll.pack(fill="both", expand=True, pady=(2, 0))
+        self.scroll._parent_frame.grid_propagate(False)
+        self.scroll._parent_frame.configure(height=102)
 
     def open_explorer(self):
         try:
@@ -1335,6 +1337,8 @@ class FileBrowser(customtkinter.CTkFrame):
 
     def update_browser(self):
         self.lbl_path.configure(text=f"📁 {self.app.project_dir}")
+        self.scroll._parent_frame.grid_propagate(False)
+        self.scroll._parent_frame.configure(height=102)
         for w in self.scroll.winfo_children():
             w.destroy()
             
@@ -1486,6 +1490,8 @@ class App(customtkinter.CTk):
         self.engine.on_time_update = self.on_time_update
         self.project_dir = os.path.join(os.path.expanduser("~"), "Music", "OpenVynilRipper", "MeuDisco")
         os.makedirs(self.project_dir, exist_ok=True)
+        self.session_recorded = {"LadoA": False, "LadoB": False}
+        self.current_recording_side = None
         
         self.title("OPEN VYNIL RIPPER - ANALOG EDITION")
         self.geometry("950x950")
@@ -1865,16 +1871,15 @@ class App(customtkinter.CTk):
     def _on_eq_treble(self, val): self.engine.eq_treble = float(val)
     
     def update_buttons_state(self):
-        import os
-        lado_a_exists = os.path.exists(os.path.join(self.project_dir, "LadoA.wav"))
-        lado_b_exists = os.path.exists(os.path.join(self.project_dir, "LadoB.wav"))
+        lado_a_recorded = getattr(self, 'session_recorded', {}).get("LadoA", False)
+        lado_b_recorded = getattr(self, 'session_recorded', {}).get("LadoB", False)
         
         self.btn_rec_a.configure(
-            text="● REGRAVAR LADO A" if lado_a_exists else "● GRAVAR LADO A",
+            text="● REGRAVAR LADO A" if lado_a_recorded else "● GRAVAR LADO A",
             fg_color=COLOR_RED, text_color="#FFF"
         )
         self.btn_rec_b.configure(
-            text="● REGRAVAR LADO B" if lado_b_exists else "● GRAVAR LADO B",
+            text="● REGRAVAR LADO B" if lado_b_recorded else "● GRAVAR LADO B",
             fg_color=COLOR_RED, text_color="#FFF"
         )
 
@@ -1913,6 +1918,8 @@ class App(customtkinter.CTk):
 
     def set_project_dir(self, new_dir):
         self.project_dir = new_dir
+        self.session_recorded = {"LadoA": False, "LadoB": False}
+        self.current_recording_side = None
         self.browser.update_browser()
         self.update_buttons_state()
         cov_f = os.path.join(self.project_dir, "cover.jpg")
@@ -1950,6 +1957,7 @@ class App(customtkinter.CTk):
             if not messagebox.askyesno("Sobrescrever", f"O arquivo {side_name}.wav já existe.\nDeseja sobrescrever e gravar este lado novamente?"):
                 return
                 
+        self.current_recording_side = side_name
         if self.chk_magic.get():
             self.engine.magic_wait = True
             self.engine.magic_path = wav_path
@@ -1984,6 +1992,9 @@ class App(customtkinter.CTk):
         self.engine.stop_recording()
         self.engine.magic_wait = False
         self.turntable.set_playing(False)
+        if getattr(self, 'current_recording_side', None):
+            self.session_recorded[self.current_recording_side] = True
+            self.current_recording_side = None
         self.btn_rec_a.configure(state="normal")
         self.btn_rec_b.configure(state="normal")
         self.btn_export.configure(state="normal")
