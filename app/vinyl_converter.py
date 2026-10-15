@@ -51,6 +51,9 @@ class AudioEngine:
         self.elapsed_seconds = 0.0
         self.on_level_update = None
         self.on_time_update = None
+        self.passthrough_mode = False
+        self.passthrough_running = False
+        self.passthrough_thread = None
 
     def get_devices(self) -> dict:
         try:
@@ -75,7 +78,10 @@ class AudioEngine:
             if "Mapeador" in name or "Mapper" in name:
                 display_name = "🖥️ Áudio Padrão do Windows"
             elif "USB Audio" in name or "Burr-Brown" in name or "Microphone (USB" in name:
-                display_name = "🎧 TOCA-DISCOS ION"
+                if dev['max_input_channels'] >= 1:
+                    display_name = "🎧 TOCA-DISCOS ION (Entrada Vinil)"
+                else:
+                    display_name = "🔊 TOCA-DISCOS ION (Saída Caixas)"
 
             if dev['max_input_channels'] >= 1 and display_name not in inputs:
                 inputs[display_name] = {"index": i, "name": display_name}
@@ -85,6 +91,10 @@ class AudioEngine:
         return {"inputs": list(inputs.values()), "outputs": list(outputs.values())}
 
     def start_stream(self):
+        if self.passthrough_mode:
+            self._start_passthrough_stream()
+            return
+
         if self.input_device is None or self.output_device is None: return
         try:
             self.stream = sd.Stream(
@@ -94,6 +104,84 @@ class AudioEngine:
             )
             self.stream.start()
         except: self.stream = None
+
+    def _start_passthrough_stream(self):
+        self.stop_stream()
+        self.passthrough_running = True
+        self.passthrough_thread = threading.Thread(target=self._passthrough_worker, daemon=True)
+        self.passthrough_thread.start()
+
+    def _passthrough_worker(self):
+        import soundcard as sc
+        out_dev = self.output_device
+        if out_dev is None:
+            # Fallback para o toca-discos se houver
+            devs = self.get_devices()
+            for d in devs["outputs"]:
+                if "ION" in d["name"].upper() or "USB" in d["name"].upper():
+                    out_dev = d["index"]
+                    break
+        if out_dev is None:
+            out_dev = sd.default.device[1]
+
+        try:
+            # Pega o autofalante de reprodução padrão do Windows ou o monitor do sistema para loopback
+            speakers = sc.all_speakers()
+            target_spk = sc.default_speaker()
+            for spk in speakers:
+                # Se o speaker padrão for o próprio toca-discos, pega os alto-falantes internos do PC
+                if "USB" not in spk.name.upper():
+                    target_spk = spk
+                    break
+
+            loop_mic = sc.get_microphone(id=str(target_spk.name), include_loopback=True)
+            out_stream = sd.OutputStream(
+                device=out_dev,
+                channels=self.channels,
+                samplerate=self.sample_rate,
+                blocksize=self.blocksize,
+                dtype='float32'
+            )
+            out_stream.start()
+            self.stream = out_stream
+
+            with loop_mic.recorder(samplerate=self.sample_rate, blocksize=self.blocksize) as rec:
+                while self.passthrough_running:
+                    if self.paused:
+                        silence = np.zeros((self.blocksize, self.channels), dtype=np.float32)
+                        out_stream.write(silence)
+                        continue
+
+                    data = rec.record(numframes=self.blocksize)
+                    if data.shape[1] > 2:
+                        data = data[:, :2]
+                    elif data.shape[1] == 1:
+                        data = np.column_stack((data, data))
+
+                    # Aplica ganhos dos knobs
+                    data = data * self.input_gain * self.monitor_volume
+                    c_data = np.ascontiguousarray(data, dtype=np.float32)
+                    out_stream.write(c_data)
+
+                    # Atualiza VU e Waveform
+                    amp = float(np.max(np.abs(c_data)))
+                    vu_L = float(np.sqrt(np.mean(c_data[:, 0]**2)))
+                    vu_R = float(np.sqrt(np.mean(c_data[:, 1]**2)))
+                    self.waveform_buffer.append(amp)
+                    self.latest_levels = (vu_L, vu_R, vu_L, vu_R)
+                    self.latest_amp = amp
+
+        except Exception as e:
+            print("Passthrough error:", e)
+        finally:
+            if 'out_stream' in locals():
+                try:
+                    out_stream.stop()
+                    out_stream.close()
+                except:
+                    pass
+            self.stream = None
+            self.passthrough_running = False
 
     def _audio_callback(self, indata, outdata, frames, time_info, status):
         if self.paused:
@@ -164,9 +252,13 @@ class AudioEngine:
     def pause(self): self.paused = True
     def resume(self): self.paused = False
     def stop_stream(self):
+        self.passthrough_running = False
         if self.stream is not None:
             try:
-                self.stream.abort()
+                if hasattr(self.stream, 'abort'):
+                    self.stream.abort()
+                if hasattr(self.stream, 'stop'):
+                    self.stream.stop()
                 self.stream.close()
             except:
                 pass
@@ -949,9 +1041,37 @@ class App(customtkinter.CTk):
         
 
     def _build_ui(self):
-        header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=50, corner_radius=0)
+        header = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=54, corner_radius=0)
         header.pack(fill="x", pady=(0, 10))
-        customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(pady=10)
+        
+        # Título à esquerda
+        customtkinter.CTkLabel(header, text="O P E N   V Y N I L   R I P P E R", font=FONT_TITLE, text_color=COLOR_ACCENT).pack(side="left", padx=20, pady=10)
+        
+        # Botões de Modo no centro / direita
+        mode_frame = customtkinter.CTkFrame(header, fg_color=COLOR_BG, corner_radius=8, border_width=1, border_color="#333")
+        mode_frame.pack(side="right", padx=15, pady=8)
+        
+        self.btn_mode_vinyl = customtkinter.CTkButton(
+            mode_frame, text="📻 MODO VINIL", width=120, height=32, corner_radius=6,
+            fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD,
+            command=lambda: self._set_mode("VINYL")
+        )
+        self.btn_mode_vinyl.pack(side="left", padx=3, pady=3)
+        
+        self.btn_mode_pc = customtkinter.CTkButton(
+            mode_frame, text="🔊 SOM DO PC P/ CAIXAS", width=180, height=32, corner_radius=6,
+            fg_color="transparent", text_color=COLOR_TEXT, font=FONT_BOLD,
+            hover_color=COLOR_SURFACE2,
+            command=lambda: self._set_mode("PC")
+        )
+        self.btn_mode_pc.pack(side="left", padx=3, pady=3)
+        
+        btn_snd_settings = customtkinter.CTkButton(
+            header, text="⚙️ Som do Windows", width=130, height=32, corner_radius=6,
+            fg_color=COLOR_SURFACE2, text_color=COLOR_TEXT, font=FONT_MAIN,
+            command=self._open_windows_sound_settings
+        )
+        btn_snd_settings.pack(side="right", padx=(0, 10), pady=8)
         
         main_container = customtkinter.CTkFrame(self, fg_color="transparent")
         main_container.pack(fill="both", expand=True, padx=10, pady=5)
@@ -1077,6 +1197,11 @@ class App(customtkinter.CTk):
         self.btn_split = customtkinter.CTkButton(trans_frame, text="✂ SEPARAR FAIXAS AUTOMÁTICO E EXPORTAR", fg_color=COLOR_ACCENT, text_color="#000", font=FONT_BOLD, height=40, corner_radius=8, command=self.on_auto_split)
         self.btn_split.pack(fill="x", padx=15, pady=(5, 10))
         
+        status_bar = customtkinter.CTkFrame(self, fg_color=COLOR_SURFACE, height=28, corner_radius=0)
+        status_bar.pack(fill="x", side="bottom")
+        self.lbl_status = customtkinter.CTkLabel(status_bar, text="SISTEMA PRONTO", font=FONT_MAIN, text_color=COLOR_GREEN)
+        self.lbl_status.pack(side="left", padx=15, pady=3)
+        
         self.update_buttons_state()
 
     def _on_input_gain(self, val): self.engine.input_gain = float(val)
@@ -1103,9 +1228,53 @@ class App(customtkinter.CTk):
             self.opt_in.set(next((n for n in self.in_map.keys() if "ION" in n.upper() or "USB" in n.upper()), list(self.in_map.keys())[0]))
         if self.out_map:
             self.opt_out.configure(values=list(self.out_map.keys()))
-            self.opt_out.set(next((n for n in self.out_map.keys() if "SYNAPTICS" in n.upper() or "REALTEK" in n.upper()), list(self.out_map.keys())[0]))
+            # Se encontrar o Toca-Discos ION como saída (caixas), prioriza ele para as caixas, senão Synaptics/Padrão
+            preferred_out = next((n for n in self.out_map.keys() if "ION" in n.upper() or "USB" in n.upper()), None)
+            if not preferred_out:
+                preferred_out = next((n for n in self.out_map.keys() if "SYNAPTICS" in n.upper() or "REALTEK" in n.upper()), list(self.out_map.keys())[0])
+            self.opt_out.set(preferred_out)
         self._start_stream()
-        
+
+    def _open_windows_sound_settings(self):
+        try:
+            # Abre o painel moderno de som do Windows
+            subprocess.Popen("start ms-settings:sound", shell=True)
+        except:
+            try:
+                subprocess.Popen("control mmsys.cpl", shell=True)
+            except Exception as e:
+                print("Error opening sound settings:", e)
+
+    def _set_mode(self, mode):
+        if mode == "VINYL":
+            self.engine.passthrough_mode = False
+            self.btn_mode_vinyl.configure(fg_color=COLOR_ACCENT, text_color="#000")
+            self.btn_mode_pc.configure(fg_color="transparent", text_color=COLOR_TEXT)
+            self.btn_rec_a.configure(state="normal")
+            self.btn_rec_b.configure(state="normal")
+            self.chk_magic.configure(state="normal")
+            if hasattr(self, 'lbl_status'):
+                self.lbl_status.configure(text="MODO VINIL ATIVO (GRAVAÇÃO)", text_color=COLOR_GREEN)
+        else: # "PC"
+            self.engine.passthrough_mode = True
+            self.btn_mode_pc.configure(fg_color=COLOR_ACCENT, text_color="#000")
+            self.btn_mode_vinyl.configure(fg_color="transparent", text_color=COLOR_TEXT)
+            # No modo som do PC para caixas, desabilita botões de gravação para não gravar sem querer
+            if self.engine.recording:
+                self.on_stop_click()
+            self.btn_rec_a.configure(state="disabled")
+            self.btn_rec_b.configure(state="disabled")
+            self.chk_magic.configure(state="disabled")
+            if hasattr(self, 'lbl_status'):
+                self.lbl_status.configure(text="MODO SOM DO PC ATIVO -> ENVIANDO P/ CAIXAS DO TOCA-DISCOS", text_color=COLOR_YELLOW)
+            
+            # Garante que a saída selecionada seja o Toca-Discos (onde estão as caixas)
+            ion_out = next((n for n in self.out_map.keys() if "ION" in n.upper() or "USB" in n.upper()), None)
+            if ion_out and self.opt_out.get() != ion_out:
+                self.opt_out.set(ion_out)
+
+        self.engine.stop_stream()
+        self._start_stream()
 
     def set_project_dir(self, new_dir):
         self.project_dir = new_dir
