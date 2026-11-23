@@ -1,0 +1,11 @@
+[project]
+name = "open-vynil-ripper"
+version = "2.0.0"
+description = "Open Vynil Ripper v2.0 Landing Page"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0.0",
+]
+
+[tool.vercel]
+entrypoint = "index:app"
