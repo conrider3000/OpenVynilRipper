@@ -1,4 +1,4 @@
 app/
-*.py
-requirements.txt
+public/downloads/
+EZVinylTapeConverterSetup.exe
 *.spec
